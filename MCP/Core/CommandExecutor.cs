@@ -800,6 +800,18 @@ namespace RevitMCP.Core
                     case "rfa_set_family_type":
                         result = RfaSetFamilyType(parameters);
                         break;
+                    case "rfa_create_dimension":
+                        result = RfaCreateDimension(parameters);
+                        break;
+                    case "rfa_align_to_reference_plane":
+                        result = RfaAlignToReferencePlane(parameters);
+                        break;
+                    case "rfa_create_sweep":
+                        result = RfaCreateSweep(parameters);
+                        break;
+                    case "rfa_create_blend":
+                        result = RfaCreateBlend(parameters);
+                        break;
 
                     default:
                         throw new NotImplementedException($"未實作的命令: {request.CommandName}");

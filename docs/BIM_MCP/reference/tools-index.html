@@ -3,9 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Tools 索引（197 個）· BIM_MCP</title>
-<meta property="og:title" content="RevitMCP Tools 索引：197 個執行層工具">
-<meta property="og:description" content="197 個 MCP 工具 × 唯讀/寫入標註 × 來源模組。Tool 是執行層，方法在 Domain、編排在 Skill。">
+<title>Tools 索引（201 個）· BIM_MCP</title>
+<meta property="og:title" content="RevitMCP Tools 索引：201 個執行層工具">
+<meta property="og:description" content="201 個 MCP 工具 × 唯讀/寫入標註 × 來源模組。Tool 是執行層，方法在 Domain、編排在 Skill。">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Noto+Sans+TC:wght@300;400;600;700;800&display=swap">
@@ -89,9 +89,9 @@
 </nav>
 
 <header class="bim-hero">
-  <div class="bim-hero-eyebrow">TOOLS INDEX <span class="accent">197 個</span></div>
+  <div class="bim-hero-eyebrow">TOOLS INDEX <span class="accent">201 個</span></div>
   <h1 class="bim-hero-title">Tools · <span class="accent">執行層</span><br>模型上真正被動到的那一下</h1>
-  <p class="bim-hero-sub">Tool 是<strong>執行</strong>。它不決定方法，也不決定順序——方法在 <a href="domain-index.html">Domain</a>，順序在 <a href="skills-index.html">Skill</a>。這一頁把 197 個工具攤開，讓你看得到「有什麼」以及「哪些會動到模型」。</p>
+  <p class="bim-hero-sub">Tool 是<strong>執行</strong>。它不決定方法，也不決定順序——方法在 <a href="domain-index.html">Domain</a>，順序在 <a href="skills-index.html">Skill</a>。這一頁把 201 個工具攤開，讓你看得到「有什麼」以及「哪些會動到模型」。</p>
 </header>
 
 <section class="bim-section">
@@ -99,7 +99,7 @@
   <p>每張卡右上角的標記來自工具自己宣告的 <code>annotations</code>，不是這一頁另外標的——閘門 <code>9-1</code> 會驗證它們與程式碼一致。</p>
   <ul>
     <li><strong>唯讀</strong>（86 個）——只讀不寫。跑錯了不會留下痕跡，可以放心探索。</li>
-    <li><strong>會寫入</strong>（108 個）——會在 Transaction 裡改模型，但不刪除既有內容。可以 Undo，但會進 Revit 的復原堆疊。</li>
+    <li><strong>會寫入</strong>（112 個）——會在 Transaction 裡改模型，但不刪除既有內容。可以 Undo，但會進 Revit 的復原堆疊。</li>
     <li><strong>破壞性</strong>（3 個）——刪除或不可逆地取代既有內容：<code>curate_mep_sizes · dedup_detail_elements_in_view · delete_element</code>。這份名單是白名單，程式碼裡多一個就會被閘門擋下。</li>
   </ul>
   <p style="color:var(--text-muted);font-size:13px;">「唯讀」是工具作者的宣告，不是執行時的沙箱。它告訴你這支工具<em>設計上</em>不寫入，不是保證它<em>不可能</em>寫入。</p>
@@ -113,7 +113,7 @@
     </thead>
     <tbody>
         <tr><td><strong>A</strong></td><td>基礎與查詢</td><td class="num">26</td><td>讀模型、找元素、問參數，也含少數寫入前置（載入共用參數）。</td></tr>
-        <tr><td><strong>B</strong></td><td>建模與構件</td><td class="num">52</td><td>產生或修改實體構件：牆、柱、樑、帷幕、地形、IFC 同步，以及在族群檔（.rfa）內建模。</td></tr>
+        <tr><td><strong>B</strong></td><td>建模與構件</td><td class="num">56</td><td>產生或修改實體構件：牆、柱、樑、帷幕、地形、IFC 同步，以及在族群檔（.rfa）內建模。</td></tr>
         <tr><td><strong>C</strong></td><td>房間與空間</td><td class="num">18</td><td>房間邊界、編號、面積、走廊、施工架周長。</td></tr>
         <tr><td><strong>D</strong></td><td>MEP 與碰撞</td><td class="num">17</td><td>風管系統、空間代表點、套管開孔、CSA 干涉。</td></tr>
         <tr><td><strong>E</strong></td><td>法規檢核</td><td class="num">13</td><td>排煙、偵煙、樓梯——有法源、有判準的檢查。</td></tr>
@@ -122,11 +122,11 @@
         <tr><td><strong>H</strong></td><td>視覺化</td><td class="num">20</td><td>上色、覆寫、隱藏顯示，也含材質與 Type 建構。</td></tr>
     </tbody>
   </table>
-  <p style="color:var(--text-muted);font-size:13px;">分類是 41 個來源模組的一個分割——每個模組恰好屬於一類，八類加總等於 197。這一頁由 <code>registerRevitTools()</code> 產生，不是手寫的。</p>
+  <p style="color:var(--text-muted);font-size:13px;">分類是 41 個來源模組的一個分割——每個模組恰好屬於一類，八類加總等於 201。這一頁由 <code>registerRevitTools()</code> 產生，不是手寫的。</p>
 </section>
 
 <section class="bim-section">
-  <h2 class="bim-section-title">197 個工具 · 依用途分組</h2>
+  <h2 class="bim-section-title">201 個工具 · 依用途分組</h2>
 
     <div class="cat-header">A · 基礎與查詢（26 個）</div>
     <p class="cat-blurb">讀模型、找元素、問參數，多數工作的第一步；也包含少數寫入型前置工具（如載入共用參數檔 load_shared_parameters）。</p>
@@ -390,7 +390,7 @@
         <div class="tool-desc">將視圖縮放至指定元素，讓使用者可以快速定位。</div>
       </div>
     </div>
-    <div class="cat-header">B · 建模與構件（52 個）</div>
+    <div class="cat-header">B · 建模與構件（56 個）</div>
     <p class="cat-blurb">產生或修改實體構件：牆、柱、樑、帷幕、地形、IFC 同步，以及在族群檔（.rfa）內建模。</p>
     <div class="tool-card" id="analyze_beam_penetration" data-tool="analyze_beam_penetration">
       <div>
@@ -815,6 +815,36 @@
         <div class="tool-desc">在作用中的族群檔（.rfa）新增族群參數（長度、數字、整數、是/否、文字、角度、面積、體積、材質），可附公式或目前類型的初始值；同名參數略過。</div>
       </div>
     </div>
+    <div class="tool-card" id="rfa_align_to_reference_plane" data-tool="rfa_align_to_reference_plane">
+      <div>
+        <div class="tool-name">rfa_align_to_reference_plane</div>
+        <div class="tool-flags"><span class="tool-badge write">會寫入</span></div>
+        <div class="tool-module">rfa-family-tools</div>
+      </div>
+      <div>
+        <div class="tool-desc">把形體（擠出、融合、掃掠）落在參考平面上的面，對齊並鎖定到該參考平面；之後參考平面被尺寸參數推動時，形體會跟著走。面必須已與平面共面。</div>
+      </div>
+    </div>
+    <div class="tool-card" id="rfa_create_blend" data-tool="rfa_create_blend">
+      <div>
+        <div class="tool-name">rfa_create_blend</div>
+        <div class="tool-flags"><span class="tool-badge write">會寫入</span></div>
+        <div class="tool-module">rfa-family-tools</div>
+      </div>
+      <div>
+        <div class="tool-desc">在作用中的族群檔建立實體或空心融合：底部與頂部各一個封閉輪廓（多段線、矩形或圓，形狀可不同），沿草圖平面法向量相距 heightMm；可指定材質並把頂/底偏移綁到族群參數。</div>
+      </div>
+    </div>
+    <div class="tool-card" id="rfa_create_dimension" data-tool="rfa_create_dimension">
+      <div>
+        <div class="tool-name">rfa_create_dimension</div>
+        <div class="tool-flags"><span class="tool-badge write">會寫入</span></div>
+        <div class="tool-module">rfa-family-tools</div>
+      </div>
+      <div>
+        <div class="tool-desc">在作用中的族群檔於平行參考平面之間標尺寸：兩個平面可綁長度參數（參數驅動平面位置），三個以上可設 EQ 等分；自動挑選平面圖或立面視圖。</div>
+      </div>
+    </div>
     <div class="tool-card" id="rfa_create_extrusion" data-tool="rfa_create_extrusion">
       <div>
         <div class="tool-name">rfa_create_extrusion</div>
@@ -833,6 +863,16 @@
       </div>
       <div>
         <div class="tool-desc">在作用中的族群檔批次建立具名參考平面：簡式為法向軸 X/Y/Z 加偏移量，進階式為兩端點加切割向量；自動挑選可放置的平面或立面視圖，同名略過。</div>
+      </div>
+    </div>
+    <div class="tool-card" id="rfa_create_sweep" data-tool="rfa_create_sweep">
+      <div>
+        <div class="tool-name">rfa_create_sweep</div>
+        <div class="tool-flags"><span class="tool-badge write">會寫入</span></div>
+        <div class="tool-module">rfa-family-tools</div>
+      </div>
+      <div>
+        <div class="tool-desc">在作用中的族群檔建立實體或空心掃掠：斷面輪廓沿同一平面上的路徑（多段線，或直線與三點圓弧段）掃出，適用於扶手、線板、框料；可指定材質。</div>
       </div>
     </div>
     <div class="tool-card" id="rfa_get_document_info" data-tool="rfa_get_document_info">
@@ -2128,7 +2168,7 @@
     <a href="../index.html" class="bim-footer-btn">回 BIM_MCP 首頁</a>
   </div>
   <p>BIM_MCP · reference / tools-index</p>
-  <p style="font-size:11px;color:var(--text-faint);margin-top:6px;">197 個 MCP 工具完整索引，由 registerRevitTools() 產生；唯讀/寫入標註取自工具自身 annotations。</p>
+  <p style="font-size:11px;color:var(--text-faint);margin-top:6px;">201 個 MCP 工具完整索引，由 registerRevitTools() 產生；唯讀/寫入標註取自工具自身 annotations。</p>
 </footer>
 
 <script src="../shared.js"></script>
