@@ -35,8 +35,8 @@ These counts must be derived from source, not copied by memory.
 
 | Item | Current Count | Source of Truth |
 |---|---:|---|
-| Runtime MCP tools | 201 | `registerRevitTools()` from `MCP-Server/src/tools/index.ts` |
-| Domain SOP files | 83 | `domain/*.md` except `domain/README.md`, plus `domain/references/*.md` |
+| Runtime MCP tools | 202 | `registerRevitTools()` from `MCP-Server/src/tools/index.ts` |
+| Domain SOP files | 84 | `domain/*.md` except `domain/README.md`, plus `domain/references/*.md` |
 | Claude skills | 61 | `.claude/skills/*/SKILL.md` |
 
 When these numbers change, update `CLAUDE.md`, `README.md`, `README.zh-TW.md`, `docs/DOCUMENT_AUDIENCE_INVENTORY.md`, and any public site copy that makes grand-total claims. Then run `scripts/verify-qaqc.ps1 -SkipBuild -SkipDeploy`.
@@ -345,6 +345,7 @@ Read the matching file before applying a workflow or calculation.
 | cad 圖塊放置, block 轉族群, 灑水頭建模, 閥件建模, point placement from CAD block, INSERT to FamilyInstance, get_dwg_block_instances, preview_family_instances_from_dwg_blocks, create_family_instances_from_dwg_blocks | `domain/cad-block-point-placement.md` |
 | space centroid, 空間中心點, 代表點, centroid, 批次放置, 逐室放置, 風口放置, air terminal, place_family_instances, get_space_centroid, IsPointInSpace | `domain/space-centroid-placement.md` |
 | 機電教戰手冊, MEP playbook, 教戰手冊, 五種量, 量從哪裡來, 決定的量, 教學假設, 放風口, 系統流量 vs 端點需求, 旗標誠實但問錯問題 | `domain/mep-space-demand-matrix.md`（方法） + `docs/BIM_MCP/reference/mep-playbook.html`（教學導覽） |
+| family authoring, 族群建模, RFA 建模, 參數化族群, 族群編輯器, reference line sweep, 參考線掃掠, Rhino 轉族群, rfa_create_extrusion, rfa_create_sweep | `domain/rfa-family-authoring.md` |
 | pyRevit, UI API, 按鈕觸發, 觸發按鈕, PostableCommandId, PostCommand, Reload, ribbon 按鈕, 外掛 UI 命令 | `domain/tool-capability-boundary.md` |
 
 Meta and governance domain files:
