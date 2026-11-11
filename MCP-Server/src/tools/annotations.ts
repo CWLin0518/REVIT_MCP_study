@@ -107,6 +107,9 @@ export const OVERRIDE: Record<string, ClassificationHints> = {
     unhide_elements: { readOnlyHint: false, destructiveHint: false },
 
     diagnose_curtain_wall_elevation_dimensions: { readOnlyHint: false, destructiveHint: false },
+
+    // rfa_ 前綴蓋掉了 get_ 動詞，前綴規則會誤判為寫入；它只讀取族群文件。
+    rfa_get_document_info: { readOnlyHint: true, destructiveHint: false },
 };
 
 /**
