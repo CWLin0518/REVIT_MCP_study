@@ -45,7 +45,7 @@ export const rfaFamilyTools: Tool[] = [
     {
         name: "rfa_get_document_info",
         description:
-            "Read the active family (.rfa) document. Returns category, placement type, types, family parameters with current values, reference planes, levels, views, existing solid/void forms and the materials available in the family document (id + name; forms and material parameters can only reference these). " +
+            "Read the active family (.rfa) document. Returns category, placement type, types, family parameters with current values, reference planes, levels, views, existing solid/void forms (each with its subcategory name or null and its visibility settings: coarse, medium, fine, planRcp, frontBack, leftRight, whenCutInPlanRcp, or null when the form has none), the subcategories of the family category (id + name) and the materials available in the family document (id + name; forms and material parameters can only reference these). " +
             "Call this first before the other editing rfa_* tools; it fails if the active document is a project instead of a family (use rfa_new_family or rfa_open_family to make a family active).",
         inputSchema: { type: "object", properties: {} },
     },
@@ -557,6 +557,65 @@ export const rfaFamilyTools: Tool[] = [
                 },
             },
             required: ["materials"],
+        },
+    },
+    {
+        name: "rfa_set_form_visibility",
+        description:
+            "Set subcategory and visibility of family forms. Works on forms (extrusion, blend, sweep, revolution, swept blend) in the active family document. " +
+            "subcategory assigns the forms to a subcategory of the family category, creating it when missing (unless createSubcategory: false); an empty string clears the assignment back to the family category. " +
+            "subcategoryStyle sets the subcategory's line color, projection/cut line weights and material (the material must already exist in the family document; create it with rfa_create_material) — it modifies an existing subcategory too, which affects every element on it. " +
+            "visibility sets the Family Element Visibility Settings: detail levels (coarse, medium, fine) and view directions (planRcp, frontBack, leftRight, whenCutInPlanRcp); fields not given keep the form's current value. " +
+            "Each form is processed on its own; invalid combinations (e.g. void forms, or whenCutInPlanRcp on a category that does not support it) are reported per id in errors or warnings without aborting the others. " +
+            "Returns the subcategory (name, id, created, style read back), updated forms with subcategory and visibility read back from Revit, errors, the sorted available subcategories and warnings. Use rfa_get_document_info to find form ids.",
+        inputSchema: {
+            type: "object",
+            properties: {
+                elementIds: {
+                    type: "array",
+                    items: { type: "integer" },
+                    description: "Element ids of forms in the family document (see forms in rfa_get_document_info).",
+                },
+                subcategory: {
+                    type: "string",
+                    description: "Subcategory of the family category to put the forms on. Created if missing (see createSubcategory). Empty string = clear, back to the family category itself.",
+                },
+                createSubcategory: {
+                    type: "boolean",
+                    description: "Create the subcategory when it does not exist (default true). When false, a missing name is an error listing the available subcategories.",
+                    default: true,
+                },
+                subcategoryStyle: {
+                    type: "object",
+                    description: "Style applied to the subcategory (new or existing). Requires a non-empty subcategory.",
+                    properties: {
+                        lineColor: {
+                            type: "array",
+                            items: { type: "integer", minimum: 0, maximum: 255 },
+                            minItems: 3,
+                            maxItems: 3,
+                            description: "Line color [r, g, b], each 0-255.",
+                        },
+                        projectionLineWeight: { type: "integer", minimum: 1, maximum: 16, description: "Projection line weight 1-16." },
+                        cutLineWeight: { type: "integer", minimum: 1, maximum: 16, description: "Cut line weight 1-16 (only for cuttable categories)." },
+                        material: { type: "string", description: "Name of a material that exists in the family document. Create it first with rfa_create_material if missing." },
+                    },
+                },
+                visibility: {
+                    type: "object",
+                    description: "Family Element Visibility Settings. Give any subset; omitted fields keep the form's current value.",
+                    properties: {
+                        coarse: { type: "boolean", description: "Show at Coarse detail level." },
+                        medium: { type: "boolean", description: "Show at Medium detail level." },
+                        fine: { type: "boolean", description: "Show at Fine detail level." },
+                        planRcp: { type: "boolean", description: "Show in Plan/RCP views." },
+                        frontBack: { type: "boolean", description: "Show in Front/Back views." },
+                        leftRight: { type: "boolean", description: "Show in Left/Right views." },
+                        whenCutInPlanRcp: { type: "boolean", description: "Show when cut in Plan/RCP (only for categories that are cut in the symbol)." },
+                    },
+                },
+            },
+            required: ["elementIds"],
         },
     },
 ];

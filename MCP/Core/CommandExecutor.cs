@@ -847,6 +847,9 @@ namespace RevitMCP.Core
                     case "rfa_create_material":
                         result = RfaCreateMaterial(parameters);
                         break;
+                    case "rfa_set_form_visibility":
+                        result = RfaSetFormVisibility(parameters);
+                        break;
 
                     default:
                         throw new NotImplementedException($"未實作的命令: {request.CommandName}");

@@ -2,7 +2,7 @@
 name: rfa-family-authoring
 description: "用 rfa_* 工具在族群編輯器中建立參數化族群的 SOP：前置條件、建立順序（類型→參數→參考平面→尺寸標籤→形體→對齊鎖定→撓曲測試）、四種形體（擠出/融合/掃掠/參考線掃掠）的座標約定、參數化管件配方，以及實測確認行不通的路線。觸發：族群建模、RFA 建模、參數化族群、族群編輯器、rfa_create_extrusion、參考線掃掠、Rhino 轉族群。"
 metadata:
-  version: "1.6"
+  version: "1.7"
   updated: "2026-11-16"
   created: "2026-11-10"
   references:
@@ -18,7 +18,7 @@ metadata:
 
 # RFA 族群建模工作流程（rfa_* Family Authoring）
 
-`rfa_*` 系列共 18 支工具，作用對象是 **Revit 目前作用中的族群文件（.rfa）**。用途是讓 AI 在族群編輯器裡建立參考平面、參數、類型與形體，並把形體綁到參數上，做出可撓曲（flex）的參數化族群。
+`rfa_*` 系列共 19 支工具，作用對象是 **Revit 目前作用中的族群文件（.rfa）**。用途是讓 AI 在族群編輯器裡建立參考平面、參數、類型與形體，並把形體綁到參數上，做出可撓曲（flex）的參數化族群。
 
 本文件定義「怎麼用、照什麼順序用、哪些路線已確認走不通」。工具的完整參數以 `MCP-Server/src/tools/rfa-family-tools.ts` 為準。
 
@@ -32,7 +32,7 @@ metadata:
 | 載入專案需要專案已開啟 | `rfa_load_into_project` 只能載入到同一個 Revit 工作階段中**已開啟**的專案，工具不會替使用者開啟 .rvt。存檔可用 `rfa_save_as` |
 | 材質要先存在於族群檔 | `material` 參數只能填族群檔內已有的材質名稱，工具不會從專案或材質庫帶入。缺的材質用 `rfa_create_material` 建立；現有材質可從 `rfa_get_document_info` 的 `materials` 查到 |
 | 單位 | 長度 mm、角度 度、面積 m²、體積 m³、是/否 用 true/false、材質用名稱 |
-| 實機驗證範圍 | 2026-11 只在 **Revit 2027** 實測通過；R22–R26 可編譯但未實測。`rfa_new_family`、`rfa_open_family`、`rfa_load_into_project`、`rfa_create_revolution`、`rfa_create_swept_blend`、`rfa_create_material` 於 2026-11-16 新增，**尚未實機驗證** |
+| 實機驗證範圍 | 2026-11 只在 **Revit 2027** 實測通過；R22–R26 可編譯但未實測。`rfa_new_family`、`rfa_open_family`、`rfa_load_into_project`、`rfa_create_revolution`、`rfa_create_swept_blend`、`rfa_create_material`、`rfa_set_form_visibility` 於 2026-11-16 新增，**尚未實機驗證** |
 
 ---
 
@@ -42,7 +42,7 @@ metadata:
 |---|---|---|
 | `rfa_new_family` | 以族群樣板（.rft）建立新族群、存檔並設為作用中文件 | |
 | `rfa_open_family` | 開啟既有 .rfa 並設為作用中文件；已開啟則切換過去 | |
-| `rfa_get_document_info` | 讀族群類別、放置型式、類型、參數現值、參考平面、樓層、視圖、既有形體、材質 | ✅ |
+| `rfa_get_document_info` | 讀族群類別、放置型式、類型、參數現值、參考平面、樓層、視圖、既有形體（含子類別與可見性）、子類別、材質 | ✅ |
 | `rfa_set_family_type` | 建立或更新類型，設值／公式，可改名；被操作的類型會成為目前類型 | |
 | `rfa_add_parameter` | 新增族群參數（9 種資料型別，可帶公式或初值） | |
 | `rfa_create_material` | 在族群檔內建立材質（顏色、透明度、類別，或複製既有材質） | |
@@ -54,6 +54,7 @@ metadata:
 | `rfa_create_sweep` | 掃掠：沿平面路徑；或沿參考線＋直徑參數做參數化圓管 | |
 | `rfa_create_swept_blend` | 掃掠融合：沿單一路徑，起點與終點各一個不同斷面 | |
 | `rfa_create_reference_line` | 在參考平面上建立直線或三點圓弧參考線，並約束到其他參考平面 | |
+| `rfa_set_form_visibility` | 把形體指派到子類別（可自動建立並設線色／線寬／材質），設定詳細等級與視圖方向的可見性 | |
 | `rfa_align_to_reference_plane` | 把形體上與參考平面共面的面鎖到該平面 | |
 | `rfa_create_symbolic_line` | 在參考平面上建立符號線（直線或三點圓弧），可指定子類別線型，並約束到其他參考平面 | |
 | `rfa_save_as` | 把作用中的族群文件另存為 .rfa | |
@@ -253,6 +254,17 @@ metadata:
 - 這支工具只設定「圖形」頁籤的著色顏色與透明度，**不建立外觀資產（彩現貼圖）**。需要彩現外觀時，由使用者在 Revit 材質瀏覽器設定，或在專案端以綠建材／材質工具處理。
 - 載入專案時，專案內若已有同名材質，Revit 會沿用專案的材質定義；族群檔內設定的顏色不一定會出現在專案中。
 
+### 5.12 子類別與可見性（Subcategory / Visibility）
+
+`rfa_set_form_visibility` 處理兩件事：形體屬於哪個子類別，以及形體在哪些詳細等級與視圖方向顯示。
+
+- `subcategory`：族群類別底下的子類別名稱。不存在時預設自動建立；傳空字串則清除指派，回到族群類別本身。`elementIds` 可以是空陣列，只用來建立並設定子類別。
+- `subcategoryStyle`：`lineColor`、`projectionLineWeight`、`cutLineWeight`（1–16）、`material`。**套用在既有子類別上會影響該子類別的所有元素**，回傳的 `styleApplied.modifiedExisting` 與 warnings 會標示。
+- `visibility`：`coarse` / `medium` / `fine`（詳細等級）與 `planRcp` / `frontBack` / `leftRight` / `whenCutInPlanRcp`（視圖方向）。只給要改的欄位，其餘維持原值。
+- 常見用法：細部形體設 `coarse: false`，讓粗略等級只顯示簡化量體；五金、把手放到獨立子類別，專案端才能用可見性／圖形單獨控制。
+- 每個形體各自處理，一個失敗不影響其他；失敗原因列在 `errors`。讀回值與要求不同時會出現在 warnings（例如不可切割的類別設定 `whenCutInPlanRcp`）。
+- 與「可見」參數的差別：`associate.visible` 是讓某個類型或實例**整個不產生**該形體；這裡設定的是形體存在、但在特定等級或視圖方向不畫出來。
+
 ---
 
 ## 6. 對齊與尺寸（Constraints）
@@ -300,7 +312,7 @@ metadata:
 | 掃掠路徑必須位於同一個平面上 | 3D 路徑 | 拆成多個平面掃掠 |
 | 距離是 X mm，但參數是 Y mm | 約束前幾何位置與參數現值不一致 | 先把參數值設成目前距離，或把幾何畫到正確位置 |
 | 交易被復原，可能是過度約束 | 同一方向被約束兩次 | 拿掉重複的約束 |
-| 族群類別沒有子類別「X」 | `subcategory` 名稱不在此族群類別下 | 改用錯誤訊息列出的名稱，或省略 |
+| 族群類別沒有子類別「X」 | `subcategory` 名稱不在此族群類別下 | 改用錯誤訊息列出的名稱，或省略；形體可用 `rfa_set_form_visibility` 自動建立子類別 |
 | 找不到名為「X」的族群樣板 | `templateName` 與實際檔名不符（語言版本不同） | 從錯誤訊息列出的可用樣板中選，或改傳 `templatePath` |
 | OpenAndActivateDocument 失敗 | Revit 不允許在目前狀態切換文件 | 請使用者在 Revit 手動開啟訊息中的路徑 |
 | Revit 目前開啟了 N 個專案 | `rfa_load_into_project` 未指定目標 | 以 `targetProject` 指定錯誤訊息列出的其中一個 |

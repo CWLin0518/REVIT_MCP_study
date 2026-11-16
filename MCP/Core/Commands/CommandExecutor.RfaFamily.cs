@@ -241,7 +241,19 @@ namespace RevitMCP.Core
             var types = fm.Types.Cast<FamilyType>().Select(t => t.Name).ToList();
 
             var forms = new FilteredElementCollector(doc).OfClass(typeof(GenericForm)).Cast<GenericForm>()
-                .Select(f => new { id = f.Id.GetIdValue(), kind = f.GetType().Name, isSolid = f.IsSolid, name = f.Name }).ToList();
+                .Select(f => new
+                {
+                    id = f.Id.GetIdValue(),
+                    kind = f.GetType().Name,
+                    isSolid = f.IsSolid,
+                    name = f.Name,
+                    subcategory = RfaFormSubcategoryName(doc, f),
+                    visibility = RfaReadFormVisibility(f),
+                }).ToList();
+
+            // 族群類別的子類別（rfa_set_form_visibility 可建立／指定）
+            var subcategories = RfaFamilySubcategories(doc)
+                .Select(c => new { id = c.Id.GetIdValue(), name = c.Name }).ToList();
 
             // 族群內可被形體／材質參數引用的材質（只能引用已存在於族群檔的材質）
             var materials = new FilteredElementCollector(doc).OfClass(typeof(Material)).Cast<Material>()
@@ -261,6 +273,7 @@ namespace RevitMCP.Core
                 levels,
                 views,
                 forms,
+                subcategories,
                 materials,
                 units = "長度 mm、角度 度、面積 m²、體積 m³",
             };
