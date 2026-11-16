@@ -447,4 +447,43 @@ export const rfaFamilyTools: Tool[] = [
             },
         },
     },
+    {
+        name: "rfa_create_revolution",
+        description:
+            "Create a revolution in the active family document. Spins a solid or void from one or more closed 2D profiles (extra loops inside the first become holes) around an axis line. " +
+            "Sketch on plane XY/XZ/YZ (+ planeOffsetMm) or on a named reference plane. The axis is given in the SAME 2D [u, v] mm coordinates as the profiles, so it always lies in the sketch plane " +
+            "(e.g. on plane XZ, axis {start: [0, 0], end: [0, 1000]} is the vertical Z axis). " +
+            "Every profile must stay on one side of the axis; touching the axis is allowed (that is how you get a solid with no centre hole). A profile that crosses the axis is rejected before Revit is called, with the loop index and how far it crosses. " +
+            "startAngleDeg/endAngleDeg default to 0/360; the span must be between 0.01° and 360°. " +
+            "Returns the angles read back from the element and its bounding box in mm as a self-check. " +
+            "Optionally assign a material and bind startAngle/endAngle/material/visible to existing family parameters.",
+        inputSchema: {
+            type: "object",
+            properties: {
+                profiles: { type: "array", items: profileLoopSchema, description: "Closed loops; the first is the outer boundary. All must lie on one side of the axis." },
+                plane: { type: "string", enum: ["XY", "XZ", "YZ"], description: "Sketch plane when referencePlane is not given. Default XY." },
+                planeOffsetMm: { type: "number", description: "Offset of the sketch plane along its normal axis, mm. Default 0." },
+                referencePlane: { type: "string", description: "Sketch on this named reference plane instead of plane/planeOffsetMm (keeps the form hosted on it)." },
+                axis: {
+                    type: "object",
+                    description: "Revolution axis as a line in the sketch plane's 2D coordinates (mm). Its direction sets the rotation sense (right-hand rule).",
+                    properties: {
+                        start: { type: "array", items: { type: "number" }, minItems: 2, maxItems: 2, description: "[u, v] in mm." },
+                        end: { type: "array", items: { type: "number" }, minItems: 2, maxItems: 2, description: "[u, v] in mm; must differ from start." },
+                    },
+                    required: ["start", "end"],
+                },
+                startAngleDeg: { type: "number", description: "Start angle in degrees. Default 0.", default: 0 },
+                endAngleDeg: { type: "number", description: "End angle in degrees. Default 360.", default: 360 },
+                isSolid: { type: "boolean", description: "true = solid (default), false = void.", default: true },
+                material: { type: "string", description: "Material name that already exists in the family document (solid only)." },
+                associate: {
+                    type: "object",
+                    description: "Bind revolution properties to family parameters, e.g. {\"endAngle\": \"Sweep Angle\", \"material\": \"Body Material\"}. Keys: startAngle, endAngle (angle params), material (material param), visible (yes/no param).",
+                    additionalProperties: { type: "string" },
+                },
+            },
+            required: ["profiles", "axis"],
+        },
+    },
 ];

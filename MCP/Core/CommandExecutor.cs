@@ -836,6 +836,9 @@ namespace RevitMCP.Core
                     case "rfa_load_into_project":
                         result = RfaLoadIntoProject(parameters);
                         break;
+                    case "rfa_create_revolution":
+                        result = RfaCreateRevolution(parameters);
+                        break;
 
                     default:
                         throw new NotImplementedException($"未實作的命令: {request.CommandName}");

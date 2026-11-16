@@ -2,7 +2,7 @@
 name: rfa-family-authoring
 description: "用 rfa_* 工具在族群編輯器中建立參數化族群的 SOP：前置條件、建立順序（類型→參數→參考平面→尺寸標籤→形體→對齊鎖定→撓曲測試）、四種形體（擠出/融合/掃掠/參考線掃掠）的座標約定、參數化管件配方，以及實測確認行不通的路線。觸發：族群建模、RFA 建模、參數化族群、族群編輯器、rfa_create_extrusion、參考線掃掠、Rhino 轉族群。"
 metadata:
-  version: "1.3"
+  version: "1.4"
   updated: "2026-11-16"
   created: "2026-11-10"
   references:
@@ -18,7 +18,7 @@ metadata:
 
 # RFA 族群建模工作流程（rfa_* Family Authoring）
 
-`rfa_*` 系列共 15 支工具，作用對象是 **Revit 目前作用中的族群文件（.rfa）**。用途是讓 AI 在族群編輯器裡建立參考平面、參數、類型與形體，並把形體綁到參數上，做出可撓曲（flex）的參數化族群。
+`rfa_*` 系列共 16 支工具，作用對象是 **Revit 目前作用中的族群文件（.rfa）**。用途是讓 AI 在族群編輯器裡建立參考平面、參數、類型與形體，並把形體綁到參數上，做出可撓曲（flex）的參數化族群。
 
 本文件定義「怎麼用、照什麼順序用、哪些路線已確認走不通」。工具的完整參數以 `MCP-Server/src/tools/rfa-family-tools.ts` 為準。
 
@@ -32,7 +32,7 @@ metadata:
 | 載入專案需要專案已開啟 | `rfa_load_into_project` 只能載入到同一個 Revit 工作階段中**已開啟**的專案，工具不會替使用者開啟 .rvt。存檔可用 `rfa_save_as` |
 | 材質要先存在於族群檔 | `material` 參數只能填族群檔內已有的材質名稱，工具不會從專案或材質庫帶入 |
 | 單位 | 長度 mm、角度 度、面積 m²、體積 m³、是/否 用 true/false、材質用名稱 |
-| 實機驗證範圍 | 2026-11 只在 **Revit 2027** 實測通過；R22–R26 可編譯但未實測。`rfa_new_family`、`rfa_open_family`、`rfa_load_into_project` 於 2026-11-16 新增，**尚未實機驗證** |
+| 實機驗證範圍 | 2026-11 只在 **Revit 2027** 實測通過；R22–R26 可編譯但未實測。`rfa_new_family`、`rfa_open_family`、`rfa_load_into_project`、`rfa_create_revolution` 於 2026-11-16 新增，**尚未實機驗證** |
 
 ---
 
@@ -49,6 +49,7 @@ metadata:
 | `rfa_create_dimension` | 在平行參考平面之間標尺寸；兩平面可掛長度參數標籤，三個以上可設 EQ | |
 | `rfa_create_extrusion` | 擠出（實體／空心），可多迴圈開孔 | |
 | `rfa_create_blend` | 融合：底部一個迴圈、頂部一個迴圈 | |
+| `rfa_create_revolution` | 旋轉：輪廓繞草圖平面上的軸線旋轉，可設起訖角度 | |
 | `rfa_create_sweep` | 掃掠：沿平面路徑；或沿參考線＋直徑參數做參數化圓管 | |
 | `rfa_create_reference_line` | 在參考平面上建立直線或三點圓弧參考線，並約束到其他參考平面 | |
 | `rfa_align_to_reference_plane` | 把形體上與參考平面共面的面鎖到該平面 | |
@@ -71,7 +72,7 @@ metadata:
 3. rfa_add_parameter             建參數（長度、材質、可見性……）
 4. rfa_create_reference_plane    建骨架平面（Left/Right/Front/Back/Top…）
 5. rfa_create_dimension          兩平面＋label 綁參數；三平面＋equalize 設 EQ
-6. rfa_create_extrusion / blend / sweep   形體畫在「剛好落在平面上」的位置
+6. rfa_create_extrusion / blend / revolution / sweep   形體畫在「剛好落在平面上」的位置
 7. rfa_align_to_reference_plane  把形體的面鎖到平面
 8. rfa_set_family_type           換一組值做撓曲測試，再換回來
 9. rfa_save_as → rfa_load_into_project   存檔取得正式名稱，再載入已開啟的專案
@@ -122,7 +123,7 @@ metadata:
 
 ---
 
-## 5. 四種形體的用法
+## 5. 形體與文件操作的用法
 
 ### 5.1 擠出（Extrusion）
 
@@ -217,6 +218,17 @@ metadata:
 - 預設不切換視窗，族群編輯器仍是作用中文件，可以繼續修改後再載入一次。`activateProject: true` 會在載入後切到專案；切換失敗只會出現在 warnings，族群仍已載入。
 - 載入後回傳專案內的族群 id 與各類型 id，後續放置實例請用這些 id，不要沿用族群檔內的 id。
 
+### 5.9 旋轉（Revolution）
+
+輪廓繞一條軸線旋轉，適合圓盤、把手、燈罩、瓶狀構件。
+
+- `axis`：`{ start: [u, v], end: [u, v] }`，與輪廓使用**同一套草圖平面 2D 座標**（mm）。例：在 `plane: "XZ"` 上 `start [0,0]`、`end [0,1000]` 就是 Z 軸。
+- **輪廓不可跨越軸線**，但可以貼在軸上（貼軸 = 中心沒有孔的實心旋轉體）。工具會在送進 Revit 前先檢查，錯誤訊息會指出是哪個迴圈、超出幾 mm。
+- `startAngleDeg` / `endAngleDeg` 預設 0 / 360，跨度需介於 0.01° 與 360° 之間。
+- `associate` 可綁 `startAngle`、`endAngle`（角度參數）、`material`、`visible`。
+- 回傳 `boundingBoxMm`，用來比對形體是否落在預期位置。
+- **尚未實機驗證的項目**：部分旋轉（非 360°）的起始方向與旋轉方向。做部分旋轉時，務必用回傳的 `boundingBoxMm` 確認方向，不對就對調軸線的 start / end 或調整角度，不要假設。
+
 ---
 
 ## 6. 對齊與尺寸（Constraints）
@@ -260,6 +272,7 @@ metadata:
 | 找不到材質 | 材質不在族群檔中 | 請使用者先在族群檔建立或傳遞材質；或省略 material |
 | 綁定失敗（兩邊型別需相同） | 例如把長度屬性綁到數字參數 | 參數型別改成相符的型別 |
 | 建立擠出失敗 | 輪廓不封閉、自我交錯，或樣板不支援（概念量體／自適應族群） | 檢查輪廓；換一般族群樣板 |
+| 輪廓跨越旋轉軸 | `rfa_create_revolution` 的輪廓有一部分在軸線另一側 | 把輪廓整個移到軸線同一側（可貼軸） |
 | 掃掠路徑必須位於同一個平面上 | 3D 路徑 | 拆成多個平面掃掠 |
 | 距離是 X mm，但參數是 Y mm | 約束前幾何位置與參數現值不一致 | 先把參數值設成目前距離，或把幾何畫到正確位置 |
 | 交易被復原，可能是過度約束 | 同一方向被約束兩次 | 拿掉重複的約束 |
