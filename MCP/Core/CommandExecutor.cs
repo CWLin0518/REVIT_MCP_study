@@ -234,6 +234,12 @@ namespace RevitMCP.Core
                     case "get_all_views":
                         result = GetAllViews(parameters);
                         break;
+                    case "clone_elevation_views_to_plans":
+                        result = CloneElevationViewsToPlans(parameters);
+                        break;
+                    case "sync_elevation_view_extents":
+                        result = SyncElevationViewExtents(parameters);
+                        break;
                     
                     case "get_active_view":
                         result = GetActiveView();
