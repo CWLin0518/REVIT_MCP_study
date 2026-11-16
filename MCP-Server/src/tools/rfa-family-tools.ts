@@ -378,7 +378,7 @@ export const rfaFamilyTools: Tool[] = [
             "Create a symbolic line (straight line or 3-point arc) in the active family document, and constrain it to reference planes. " +
             "Symbolic lines are the family's 2D representation (door elevation swing, plan swing arc); they show only in views parallel to hostPlane. " +
             "Constraints work like rfa_create_reference_line: align a part to a plane, or dimension it with a length parameter, so the line follows the family parameters. " +
-            "Constraints on an existing symbolic line cannot be re-hosted through the API — to change what a line follows, delete it and redraw it here.",
+            "Constraints on an existing symbolic line cannot be re-hosted through the API — to change what a line follows, delete it (rfa_delete_elements) and redraw it here.",
         inputSchema: {
             type: "object",
             properties: {
@@ -861,6 +861,68 @@ export const rfaFamilyTools: Tool[] = [
                 },
             },
             required: ["connectors"],
+        },
+    },
+    {
+        name: "rfa_list_constraints",
+        description:
+            "List dimensions and alignments in the active family. Read-only: opens no transaction and changes nothing. " +
+            "Locked alignments are Dimension elements in the Revit API; each item is classified as linear, angular, radial, diameter, alignment or other, and classifiedBy says how. " +
+            "Each item returns id, kind, view (owner view name, null when it has none), label (family parameter name or null), valueMm or angleDeg (null when not readable or for alignments), " +
+            "segmentsMm for multi-segment dimensions, isLocked, areSegmentsEqual (EQ), and references (elementId, elementKind such as ReferencePlane, ReferenceLine, Extrusion, Blend, Sweep, Revolution, SweptBlend, SymbolicCurve, name for reference planes, referenceType, stableRepresentation). " +
+            "A field that cannot be read is null instead of failing the call. Also returns total, counts by kind and labelledCount. " +
+            "Use it before editing an existing family: find what a form or reference plane is constrained by, then rebuild with rfa_delete_elements and the rfa_create_* tools.",
+        inputSchema: {
+            type: "object",
+            properties: {
+                elementIds: {
+                    type: "array",
+                    items: { type: "integer" },
+                    description: "Only constraints that reference at least one of these elements (forms, reference planes, lines).",
+                },
+                kinds: {
+                    type: "array",
+                    items: { type: "string", enum: ["dimension", "alignment"] },
+                    description: "Subset to list. dimension = every non-alignment kind. Default both.",
+                },
+                includeUnlabelled: {
+                    type: "boolean",
+                    description: "Include dimensions without a parameter label (and alignments, which never have one). Default true.",
+                    default: true,
+                },
+            },
+        },
+    },
+    {
+        name: "rfa_delete_elements",
+        description:
+            "Delete elements from the active family document. Targets forms, reference planes, reference lines, symbolic lines, dimensions and alignments, connectors, nested family instances. " +
+            "Defaults to a dry run (dryRun: true): the delete is performed inside a transaction that is rolled back, so the report lists exactly what Revit would delete along with the requested elements (sketches, sketch planes, dimensions, alignments, hosted forms) and nothing changes. " +
+            "Always refused, even with force: views, levels, families, type elements, materials, parameter elements, subcategory styles, sketches, reference planes that define the family origin, elements Revit cannot delete, and any request whose collateral would remove one of those. " +
+            "With dryRun: false the same probe runs first; if the collateral contains anything significant (a labelled dimension, or a form, reference plane, reference line or symbolic line that was not requested and is not part of a deleted form's sketch, a connector, a nested instance) the whole call is refused unless force is true. " +
+            "Unlabelled dimensions, alignments, sketches and sketch planes of requested elements are expected collateral and do not need force. " +
+            "Returns dryRun, force, executed, deleted (id, kind, name; empty on a dry run or refusal), requested, collateral (id, kind, name, label, significant), refused (id, reason), notFound, requiresForce, significantCollateral, totalDeletedByRevit and warnings. " +
+            "Use rfa_list_constraints and rfa_get_document_info to find ids first.",
+        inputSchema: {
+            type: "object",
+            properties: {
+                elementIds: {
+                    type: "array",
+                    items: { type: "integer" },
+                    description: "Element ids to delete.",
+                },
+                dryRun: {
+                    type: "boolean",
+                    description: "Only report what would be deleted (probe and roll back). Default true.",
+                    default: true,
+                },
+                force: {
+                    type: "boolean",
+                    description: "Delete even when the collateral includes significant elements. Never overrides the always-refused list. Default false.",
+                    default: false,
+                },
+            },
+            required: ["elementIds"],
         },
     },
 ];

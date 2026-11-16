@@ -76,6 +76,8 @@ export const DESTRUCTIVE_NAMES: Set<string> = new Set([
     "curate_mep_sizes",
     // 會從作用中族群檔移除族群參數。預設 dryRun、仍被公式／關聯／標註引用的參數需 force 才刪，但刪除本身不可逆。
     "rfa_delete_parameter",
+    // 會從作用中族群檔刪除元素與其連帶元素。預設 dryRun（試刪後回滾），重大連帶刪除需 force，但刪除本身不可逆。
+    "rfa_delete_elements",
 ]);
 
 type ClassificationHints = Pick<ToolAnnotations, "readOnlyHint" | "destructiveHint"> & {
@@ -112,6 +114,8 @@ export const OVERRIDE: Record<string, ClassificationHints> = {
 
     // rfa_ 前綴蓋掉了 get_ 動詞，前綴規則會誤判為寫入；它只讀取族群文件。
     rfa_get_document_info: { readOnlyHint: true, destructiveHint: false },
+    // 同上：rfa_ 前綴蓋掉了 list_ 動詞；它只列出尺寸與對齊約束，不開交易。
+    rfa_list_constraints: { readOnlyHint: true, destructiveHint: false },
 };
 
 /**

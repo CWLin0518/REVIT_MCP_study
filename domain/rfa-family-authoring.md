@@ -2,7 +2,7 @@
 name: rfa-family-authoring
 description: "用 rfa_* 工具在族群編輯器中建立參數化族群的 SOP：前置條件、建立順序（類型→參數→參考平面→尺寸標籤→形體→對齊鎖定→撓曲測試）、四種形體（擠出/融合/掃掠/參考線掃掠）的座標約定、參數化管件配方，以及實測確認行不通的路線。觸發：族群建模、RFA 建模、參數化族群、族群編輯器、rfa_create_extrusion、參考線掃掠、Rhino 轉族群。"
 metadata:
-  version: "1.11"
+  version: "1.12"
   updated: "2026-11-16"
   created: "2026-11-10"
   references:
@@ -18,7 +18,7 @@ metadata:
 
 # RFA 族群建模工作流程（rfa_* Family Authoring）
 
-`rfa_*` 系列共 23 支工具，作用對象是 **Revit 目前作用中的族群文件（.rfa）**。用途是讓 AI 在族群編輯器裡建立參考平面、參數、類型與形體，並把形體綁到參數上，做出可撓曲（flex）的參數化族群。
+`rfa_*` 系列共 25 支工具，作用對象是 **Revit 目前作用中的族群文件（.rfa）**。用途是讓 AI 在族群編輯器裡建立參考平面、參數、類型與形體，並把形體綁到參數上，做出可撓曲（flex）的參數化族群。
 
 本文件定義「怎麼用、照什麼順序用、哪些路線已確認走不通」。工具的完整參數以 `MCP-Server/src/tools/rfa-family-tools.ts` 為準。
 
@@ -32,7 +32,7 @@ metadata:
 | 載入專案需要專案已開啟 | `rfa_load_into_project` 只能載入到同一個 Revit 工作階段中**已開啟**的專案，工具不會替使用者開啟 .rvt。存檔可用 `rfa_save_as` |
 | 材質要先存在於族群檔 | `material` 參數只能填族群檔內已有的材質名稱，工具不會從專案或材質庫帶入。缺的材質用 `rfa_create_material` 建立；現有材質可從 `rfa_get_document_info` 的 `materials` 查到 |
 | 單位 | 長度 mm、角度 度、面積 m²、體積 m³、是/否 用 true/false、材質用名稱 |
-| 實機驗證範圍 | 2026-11 只在 **Revit 2027** 實測通過；R22–R26 可編譯但未實測。`rfa_new_family`、`rfa_open_family`、`rfa_load_into_project`、`rfa_create_revolution`、`rfa_create_swept_blend`、`rfa_create_material`、`rfa_set_form_visibility`、`rfa_place_nested_family`、`rfa_modify_parameter`、`rfa_delete_parameter`、`rfa_create_connector`（及 `rfa_add_parameter` 的共用參數）於 2026-11-16 新增，**尚未實機驗證** |
+| 實機驗證範圍 | 2026-11 只在 **Revit 2027** 實測通過；R22–R26 可編譯但未實測。`rfa_new_family`、`rfa_open_family`、`rfa_load_into_project`、`rfa_create_revolution`、`rfa_create_swept_blend`、`rfa_create_material`、`rfa_set_form_visibility`、`rfa_place_nested_family`、`rfa_modify_parameter`、`rfa_delete_parameter`、`rfa_create_connector`、`rfa_list_constraints`、`rfa_delete_elements`（及 `rfa_add_parameter` 的共用參數）於 2026-11-16 新增，**尚未實機驗證** |
 
 ---
 
@@ -60,6 +60,8 @@ metadata:
 | `rfa_place_nested_family` | 載入巢狀族群、放置實例、把巢狀參數關聯到主族群參數 | |
 | `rfa_create_connector` | 在形體的平面面上建立 MEP 接頭（管／風管／電力／導線管／電纜架） | |
 | `rfa_align_to_reference_plane` | 把形體上與參考平面共面的面鎖到該平面 | |
+| `rfa_list_constraints` | 列出尺寸與鎖定對齊：種類、標籤、數值、參考到的元素 | ✅ |
+| `rfa_delete_elements` | 刪除形體／參考平面／線／尺寸／接頭（**破壞性**；預設 dryRun，回報連帶刪除的確切清單） | |
 | `rfa_create_symbolic_line` | 在參考平面上建立符號線（直線或三點圓弧），可指定子類別線型，並約束到其他參考平面 | |
 | `rfa_save_as` | 把作用中的族群文件另存為 .rfa | |
 | `rfa_load_into_project` | 把作用中的族群載入已開啟的專案；已存在則重新載入 | |
@@ -194,7 +196,7 @@ metadata:
 - `subcategory`：族群類別底下的子類別名稱，決定線型（例如門的 `Elevation Swing`）。名稱不存在時，錯誤訊息會列出可用的子類別。
 - `constraints`：與 `rfa_create_reference_line` 相同（`curve` / `start` / `end` / `center`，對齊鎖定或以參數標距）。
 
-**修改既有族群時**：既有符號線的端點約束無法經由 API 改掛到別的參考平面。要讓它跟著新的平面走，作法是先用 `get_element_geometry` 記下原線的端點與 `get_element_info` 的 Subcategory，用 `rfa_create_symbolic_line` 在新位置重畫並約束，確認無誤後再刪除舊線。
+**修改既有族群時**：既有符號線的端點約束無法經由 API 改掛到別的參考平面。要讓它跟著新的平面走，作法是先用 `get_element_geometry` 記下原線的端點與 `get_element_info` 的 Subcategory，用 `rfa_create_symbolic_line` 在新位置重畫並約束，確認無誤後再用 `rfa_delete_elements` 刪除舊線。
 
 > 例：門上方加了氣窗後，立面開門方向線的頂點要從洞口頂改鎖到門扇頂——重畫四條線，頂點約束到「門扇頂」與中心平面，鉸鏈側端點約束到 Left / Right 與門扇半高平面。
 
@@ -348,6 +350,26 @@ metadata:
 - 量的是第一個參考方向到第二個參考方向的夾角（0–180°）：參考線方向為起點→終點。拿到的是補角（例如要 45° 卻得到 135°）時，加 `supplementary: true` 重做。
 - 回傳的 `angleDeg` 是從尺寸讀回的值，`flexCheck` 是暫時把參數 +5° 後重新量測的結果。`flexCheck` 不是 OK 時，通常是會轉動的那條參考線沒有固定在頂點上——先用 `rfa_create_reference_line` 的 constraints 把端點鎖在頂點。
 - `equalize`、`throughPointMm` 不能與 `angular` 併用。
+
+### 6.4 修改既有族群：檢視 → 刪除 → 重建
+
+族群文件沒有可用的草圖編輯 API（見第 7 節），所以「修改既有形體」的實際作法是刪掉重建。固定流程：
+
+```
+1. rfa_get_document_info          既有形體、參考平面、參數
+2. rfa_list_constraints           哪些尺寸掛了哪些參數、哪些面被鎖在哪個平面
+3. get_element_geometry           記下要重建的形體幾何
+4. rfa_delete_elements dryRun     看 Revit 會連帶刪掉什麼
+5. 向使用者確認後 dryRun: false   實際刪除
+6. rfa_create_* → align → dimension   重建並把步驟 2 記下的約束接回去
+7. rfa_set_family_type            撓曲測試
+```
+
+- `rfa_delete_elements` 的 dry run 是在交易中真的刪一次再復原，所以 `collateral` 是 Revit 的實際答案，不是推測。
+- 刪除形體時，它自己的草圖、草圖平面與鎖定對齊會一起消失，這是預期的連帶，不需要 `force`。
+- 連帶刪除若包含**有標籤的尺寸、未指定的形體、參考平面、參考線、接頭或巢狀實例**，整批會被拒絕並回傳 `requiresForce: true`。這通常表示刪的是骨架（參考平面／參考線）而不是形體——**先把報告給使用者看，同意後才用 `force`**。
+- 視圖、樓層、材質、類型，以及定義原點的參考平面，無論是否 `force` 都不會刪。
+- 刪除參數請用 `rfa_delete_parameter`（5.14），不是這支。
 
 ---
 

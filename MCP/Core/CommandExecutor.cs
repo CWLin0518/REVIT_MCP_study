@@ -867,6 +867,13 @@ namespace RevitMCP.Core
                         result = RfaCreateConnector(parameters);
                         break;
 
+                    case "rfa_list_constraints":
+                        result = RfaListConstraints(parameters);
+                        break;
+                    case "rfa_delete_elements":
+                        result = RfaDeleteElements(parameters);
+                        break;
+
                     default:
                         throw new NotImplementedException($"未實作的命令: {request.CommandName}");
                 }
