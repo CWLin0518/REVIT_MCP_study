@@ -326,4 +326,67 @@ export const rfaFamilyTools: Tool[] = [
             required: ["hostPlane"],
         },
     },
+    {
+        name: "rfa_create_symbolic_line",
+        description:
+            "Create a symbolic line (straight line or 3-point arc) in the active family document, and constrain it to reference planes. " +
+            "Symbolic lines are the family's 2D representation (door elevation swing, plan swing arc); they show only in views parallel to hostPlane. " +
+            "Constraints work like rfa_create_reference_line: align a part to a plane, or dimension it with a length parameter, so the line follows the family parameters. " +
+            "Constraints on an existing symbolic line cannot be re-hosted through the API — to change what a line follows, delete it and redraw it here.",
+        inputSchema: {
+            type: "object",
+            properties: {
+                hostPlane: { type: "string", description: "Reference plane the line lies in (its work plane), e.g. \"Interior\" for a door elevation swing." },
+                line: {
+                    type: "object",
+                    properties: {
+                        startMm: { type: "array", items: { type: "number" }, description: "[x, y, z] mm" },
+                        endMm: { type: "array", items: { type: "number" }, description: "[x, y, z] mm" },
+                    },
+                },
+                arc: {
+                    type: "object",
+                    properties: {
+                        startMm: { type: "array", items: { type: "number" } },
+                        midMm: { type: "array", items: { type: "number" } },
+                        endMm: { type: "array", items: { type: "number" } },
+                    },
+                    description: "3-point arc, [x, y, z] mm.",
+                },
+                subcategory: {
+                    type: "string",
+                    description: "Subcategory of the family category that sets the line style, e.g. \"Elevation Swing\". Optional suffix \" [projection]\" (default) or \" [cut]\". Omit for the category default.",
+                },
+                constraints: {
+                    type: "array",
+                    items: {
+                        type: "object",
+                        properties: {
+                            target: { type: "string", enum: ["curve", "start", "end", "center"], description: "Which part to constrain. Default curve." },
+                            referencePlane: { type: "string" },
+                            distanceParameter: { type: "string", description: "Length parameter for the distance. Omit to align and lock (the part must lie on the plane)." },
+                            viewName: { type: "string", description: "View for the alignment/dimension. Auto-picked (elevations first) when omitted." },
+                        },
+                        required: ["referencePlane"],
+                    },
+                },
+            },
+            required: ["hostPlane"],
+        },
+    },
+    {
+        name: "rfa_save_as",
+        description:
+            "Save the active family document to a .rfa file. The active document then points at that file. " +
+            "filePath must be an absolute path in an existing folder; an existing file is refused unless overwrite is true. " +
+            "Use it to keep the original family untouched by saving the edited one under a new name.",
+        inputSchema: {
+            type: "object",
+            properties: {
+                filePath: { type: "string", description: "Absolute path of the .rfa to write (\".rfa\" is appended when no extension is given)." },
+                overwrite: { type: "boolean", description: "Replace the file if it already exists. Default false.", default: false },
+            },
+            required: ["filePath"],
+        },
+    },
 ];

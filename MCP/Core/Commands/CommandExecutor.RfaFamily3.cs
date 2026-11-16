@@ -65,6 +65,99 @@ namespace RevitMCP.Core
             return $"平面圖「{vp.Name}」的剖切面調到 {RfaToMm(newCut)} mm，才能標註較高的參考線";
         }
 
+        /// <summary>
+        /// 把曲線元素（參考線或符號線）的 curve / start / end / center 約束到參考平面：
+        /// 沒給 distanceParameter 就對齊鎖定，有給就標距離並掛參數。必須在交易內、Regenerate 之後呼叫。
+        /// </summary>
+        private static void RfaConstrainCurve(Document doc, FamilyManager fm, CurveElement mc, JArray cs,
+                                              string noun, List<object> results, List<string> warnings)
+        {
+            if (cs == null) return;
+            double tol = RfaMm(0.5);
+            Curve g = mc.GeometryCurve;
+            bool isArc = g is Arc;
+            double zMax = Math.Max(g.GetEndPoint(0).Z, Math.Max(g.GetEndPoint(1).Z, g.Evaluate(0.5, true).Z));
+
+            foreach (JObject c in cs.OfType<JObject>())
+            {
+                string target = (c["target"]?.Value<string>() ?? "curve").Trim().ToLowerInvariant();
+                string pn = c["referencePlane"]?.Value<string>() ?? throw new Exception("constraints 每項需要 referencePlane");
+                string dp = c["distanceParameter"]?.Value<string>();
+                ReferencePlane rp = RfaFindRefPlane(doc, pn);
+                XYZ n = rp.Normal.Normalize();
+                XYZ o = rp.GetPlane().Origin;
+
+                Reference r;
+                XYZ at;
+                XYZ perp = null, parallel = null;
+                switch (target)
+                {
+                    case "curve":
+                        if (isArc) throw new Exception("圓弧不能以 curve 對齊參考平面；請改用 center 或 start / end");
+                        XYZ dir = ((Line)g).Direction.Normalize();
+                        if (Math.Abs(dir.DotProduct(n)) > 1e-6) throw new Exception($"{noun}不平行於參考平面「{pn}」，無法以 curve 約束");
+                        r = g.Reference; at = g.Evaluate(0.5, true); perp = dir;
+                        break;
+                    case "start":
+                    case "end":
+                        r = g.GetEndPointReference(target == "start" ? 0 : 1);
+                        at = g.GetEndPoint(target == "start" ? 0 : 1);
+                        if (isArc) parallel = ((Arc)g).Normal; else perp = ((Line)g).Direction;
+                        break;
+                    case "center":
+                        if (!isArc) throw new Exception("只有圓弧有 center");
+                        r = mc.CenterPointReference; at = ((Arc)g).Center; parallel = ((Arc)g).Normal;
+                        break;
+                    default:
+                        throw new Exception($"不支援的 target「{target}」（可用: curve, start, end, center）");
+                }
+                if (r == null) throw new Exception($"取不到 {target} 的參考");
+
+                double dist = Math.Abs((at - o).DotProduct(n));
+                if (!string.IsNullOrEmpty(dp))
+                {
+                    FamilyParameter fp = RfaFindParam(fm, dp) ?? throw new Exception($"找不到族群參數「{dp}」");
+                    double want = fm.CurrentType?.AsDouble(fp) ?? -1;
+                    if (Math.Abs(want - dist) > tol)
+                        throw new Exception($"{target} 到「{pn}」的距離是 {RfaToMm(dist)} mm，但參數「{dp}」是 {RfaToMm(want)} mm");
+                }
+                else if (dist > tol)
+                    throw new Exception($"{target} 不在參考平面「{pn}」上（相距 {RfaToMm(dist)} mm），要對齊請先讓它落在平面上，否則給 distanceParameter");
+
+                View view = RfaPickConstraintView(doc, n, perp, parallel, c["viewName"]?.Value<string>());
+                string note = RfaEnsurePlanShows(doc, view, zMax);
+                if (note != null && !warnings.Contains(note)) warnings.Add(note);
+
+                try
+                {
+                    if (string.IsNullOrEmpty(dp))
+                    {
+                        Dimension al = doc.FamilyCreate.NewAlignment(view, rp.GetReference(), r);
+                        al.IsLocked = true;
+                        results.Add(new { target, kind = "align", referencePlane = pn, id = al.Id.GetIdValue(), view = view.Name });
+                    }
+                    else
+                    {
+                        XYZ side = view.ViewDirection.Normalize().CrossProduct(n).Normalize();
+                        XYZ basePt = at + side * RfaMm(200);
+                        double sP = o.DotProduct(n), sB = basePt.DotProduct(n);
+                        XYZ a = basePt + n * (Math.Min(sP, sB) - sB - RfaMm(50));
+                        XYZ b = basePt + n * (Math.Max(sP, sB) - sB + RfaMm(50));
+                        var refs = new ReferenceArray();
+                        refs.Append(rp.GetReference());
+                        refs.Append(r);
+                        Dimension d = doc.FamilyCreate.NewDimension(view, Line.CreateBound(a, b), refs);
+                        d.FamilyLabel = RfaFindParam(fm, dp);
+                        results.Add(new { target, kind = "distance", referencePlane = pn, label = dp, id = d.Id.GetIdValue(), view = view.Name });
+                    }
+                }
+                catch (Exception ex)
+                {
+                    throw new Exception($"約束 {target} →「{pn}」失敗（視圖「{view.Name}」）：{ex.Message}");
+                }
+            }
+        }
+
         private object RfaCreateReferenceLine(JObject parameters)
         {
             Document doc = GetActiveFamilyDocument();
@@ -114,87 +207,7 @@ namespace RevitMCP.Core
                 double zMax = Math.Max(g.GetEndPoint(0).Z, Math.Max(g.GetEndPoint(1).Z, g.Evaluate(0.5, true).Z));
 
                 // ── 約束：curve / start / end / center → 參考平面（對齊或距離參數）──
-                if (parameters["constraints"] is JArray cs)
-                {
-                    foreach (JObject c in cs.OfType<JObject>())
-                    {
-                        string target = (c["target"]?.Value<string>() ?? "curve").Trim().ToLowerInvariant();
-                        string pn = c["referencePlane"]?.Value<string>() ?? throw new Exception("constraints 每項需要 referencePlane");
-                        string dp = c["distanceParameter"]?.Value<string>();
-                        ReferencePlane rp = RfaFindRefPlane(doc, pn);
-                        XYZ n = rp.Normal.Normalize();
-                        XYZ o = rp.GetPlane().Origin;
-
-                        Reference r;
-                        XYZ at;
-                        XYZ perp = null, parallel = null;
-                        switch (target)
-                        {
-                            case "curve":
-                                if (isArc) throw new Exception("圓弧不能以 curve 對齊參考平面；請改用 center 或 start / end");
-                                XYZ dir = ((Line)g).Direction.Normalize();
-                                if (Math.Abs(dir.DotProduct(n)) > 1e-6) throw new Exception($"參考線不平行於參考平面「{pn}」，無法以 curve 約束");
-                                r = g.Reference; at = g.Evaluate(0.5, true); perp = dir;
-                                break;
-                            case "start":
-                            case "end":
-                                r = g.GetEndPointReference(target == "start" ? 0 : 1);
-                                at = g.GetEndPoint(target == "start" ? 0 : 1);
-                                if (isArc) parallel = ((Arc)g).Normal; else perp = ((Line)g).Direction;
-                                break;
-                            case "center":
-                                if (!isArc) throw new Exception("只有圓弧有 center");
-                                r = mc.CenterPointReference; at = ((Arc)g).Center; parallel = ((Arc)g).Normal;
-                                break;
-                            default:
-                                throw new Exception($"不支援的 target「{target}」（可用: curve, start, end, center）");
-                        }
-                        if (r == null) throw new Exception($"取不到 {target} 的參考");
-
-                        double dist = Math.Abs((at - o).DotProduct(n));
-                        if (!string.IsNullOrEmpty(dp))
-                        {
-                            FamilyParameter fp = RfaFindParam(fm, dp) ?? throw new Exception($"找不到族群參數「{dp}」");
-                            double want = fm.CurrentType?.AsDouble(fp) ?? -1;
-                            if (Math.Abs(want - dist) > tol)
-                                throw new Exception($"{target} 到「{pn}」的距離是 {RfaToMm(dist)} mm，但參數「{dp}」是 {RfaToMm(want)} mm");
-                        }
-                        else if (dist > tol)
-                            throw new Exception($"{target} 不在參考平面「{pn}」上（相距 {RfaToMm(dist)} mm），要對齊請先讓它落在平面上，否則給 distanceParameter");
-
-                        View view = RfaPickConstraintView(doc, n, perp, parallel, c["viewName"]?.Value<string>());
-                        string note = RfaEnsurePlanShows(doc, view, zMax);
-                        if (note != null && !warnings.Contains(note)) warnings.Add(note);
-
-                        try
-                        {
-                            if (string.IsNullOrEmpty(dp))
-                            {
-                                Dimension al = doc.FamilyCreate.NewAlignment(view, rp.GetReference(), r);
-                                al.IsLocked = true;
-                                results.Add(new { target, kind = "align", referencePlane = pn, id = al.Id.GetIdValue(), view = view.Name });
-                            }
-                            else
-                            {
-                                XYZ side = view.ViewDirection.Normalize().CrossProduct(n).Normalize();
-                                XYZ basePt = at + side * RfaMm(200);
-                                double sP = o.DotProduct(n), sB = basePt.DotProduct(n);
-                                XYZ a = basePt + n * (Math.Min(sP, sB) - sB - RfaMm(50));
-                                XYZ b = basePt + n * (Math.Max(sP, sB) - sB + RfaMm(50));
-                                var refs = new ReferenceArray();
-                                refs.Append(rp.GetReference());
-                                refs.Append(r);
-                                Dimension d = doc.FamilyCreate.NewDimension(view, Line.CreateBound(a, b), refs);
-                                d.FamilyLabel = RfaFindParam(fm, dp);
-                                results.Add(new { target, kind = "distance", referencePlane = pn, label = dp, id = d.Id.GetIdValue(), view = view.Name });
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            throw new Exception($"約束 {target} →「{pn}」失敗（視圖「{view.Name}」）：{ex.Message}");
-                        }
-                    }
-                }
+                RfaConstrainCurve(doc, fm, mc, parameters["constraints"] as JArray, "參考線", results, warnings);
 
                 // ── 圓弧半徑標籤 ──
                 string radParam = parameters["radiusParameter"]?.Value<string>();

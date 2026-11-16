@@ -2,8 +2,8 @@
 name: rfa-family-authoring
 description: "用 rfa_* 工具在族群編輯器中建立參數化族群的 SOP：前置條件、建立順序（類型→參數→參考平面→尺寸標籤→形體→對齊鎖定→撓曲測試）、四種形體（擠出/融合/掃掠/參考線掃掠）的座標約定、參數化管件配方，以及實測確認行不通的路線。觸發：族群建模、RFA 建模、參數化族群、族群編輯器、rfa_create_extrusion、參考線掃掠、Rhino 轉族群。"
 metadata:
-  version: "1.0"
-  updated: "2026-11-10"
+  version: "1.1"
+  updated: "2026-11-12"
   created: "2026-11-10"
   references:
     - "Revit API: FamilyItemFactory (NewExtrusion / NewBlend / NewSweep / NewReferencePlane / NewDimension / NewAlignment)"
@@ -18,7 +18,7 @@ metadata:
 
 # RFA 族群建模工作流程（rfa_* Family Authoring）
 
-`rfa_*` 系列共 10 支工具，作用對象是 **Revit 目前作用中的族群文件（.rfa）**。用途是讓 AI 在族群編輯器裡建立參考平面、參數、類型與形體，並把形體綁到參數上，做出可撓曲（flex）的參數化族群。
+`rfa_*` 系列共 12 支工具，作用對象是 **Revit 目前作用中的族群文件（.rfa）**。用途是讓 AI 在族群編輯器裡建立參考平面、參數、類型與形體，並把形體綁到參數上，做出可撓曲（flex）的參數化族群。
 
 本文件定義「怎麼用、照什麼順序用、哪些路線已確認走不通」。工具的完整參數以 `MCP-Server/src/tools/rfa-family-tools.ts` 為準。
 
@@ -29,7 +29,7 @@ metadata:
 | 條件 | 說明 |
 |---|---|
 | 作用中文件必須是族群檔 | 由使用者在 Revit 手動開啟既有 .rfa，或用族群樣板新建。作用中文件是專案檔時，所有 `rfa_*` 工具都會直接拒絕 |
-| 工具不負責開檔、存檔、載入專案 | 沒有開新族群、儲存 .rfa、Load into Project 的工具。這三步由使用者在 Revit 中完成 |
+| 工具不負責開檔、載入專案 | 沒有開新族群、Load into Project 的工具，這兩步由使用者在 Revit 中完成。存檔可用 `rfa_save_as` |
 | 材質要先存在於族群檔 | `material` 參數只能填族群檔內已有的材質名稱，工具不會從專案或材質庫帶入 |
 | 單位 | 長度 mm、角度 度、面積 m²、體積 m³、是/否 用 true/false、材質用名稱 |
 | 實機驗證範圍 | 2026-11 只在 **Revit 2027** 實測通過；R22–R26 可編譯但未實測 |
@@ -50,6 +50,8 @@ metadata:
 | `rfa_create_sweep` | 掃掠：沿平面路徑；或沿參考線＋直徑參數做參數化圓管 | |
 | `rfa_create_reference_line` | 在參考平面上建立直線或三點圓弧參考線，並約束到其他參考平面 | |
 | `rfa_align_to_reference_plane` | 把形體上與參考平面共面的面鎖到該平面 | |
+| `rfa_create_symbolic_line` | 在參考平面上建立符號線（直線或三點圓弧），可指定子類別線型，並約束到其他參考平面 | |
+| `rfa_save_as` | 把作用中的族群文件另存為 .rfa | |
 
 同名的參考平面與參數會**跳過不重建**，所以重跑同一步是安全的。
 
@@ -170,6 +172,26 @@ metadata:
 - 參考線若高於平面圖的剖切面，工具會自動提高該平面圖的視圖範圍，並在 warnings 註明。
 - Revit 拒絕約束（多半是過度約束）時，整個交易會被復原，不會留下半成品。
 
+### 5.5 符號線（Symbolic Line）
+
+符號線是族群的 2D 表現，例如門的立面開門方向線、平面門弧線。它只在**與 `hostPlane` 平行的視圖**顯示。
+
+- `hostPlane`：符號線的工作平面。門的立面開門方向線通常畫在 `Interior` 或 `Exterior` 平面上。
+- `subcategory`：族群類別底下的子類別名稱，決定線型（例如門的 `Elevation Swing`）。名稱不存在時，錯誤訊息會列出可用的子類別。
+- `constraints`：與 `rfa_create_reference_line` 相同（`curve` / `start` / `end` / `center`，對齊鎖定或以參數標距）。
+
+**修改既有族群時**：既有符號線的端點約束無法經由 API 改掛到別的參考平面。要讓它跟著新的平面走，作法是先用 `get_element_geometry` 記下原線的端點與 `get_element_info` 的 Subcategory，用 `rfa_create_symbolic_line` 在新位置重畫並約束，確認無誤後再刪除舊線。
+
+> 例：門上方加了氣窗後，立面開門方向線的頂點要從洞口頂改鎖到門扇頂——重畫四條線，頂點約束到「門扇頂」與中心平面，鉸鏈側端點約束到 Left / Right 與門扇半高平面。
+
+### 5.6 另存族群（Save As）
+
+`rfa_save_as` 把作用中的族群文件存成 .rfa。
+
+- `filePath` 必須是完整路徑，資料夾必須已存在（工具不建立資料夾）。
+- 檔案已存在時預設拒絕；確定要覆蓋才傳 `overwrite: true`。**覆蓋前先向使用者確認**。
+- 存檔後，作用中的族群文件就指向新檔；原本的 .rfa 不會被改動。
+
 ---
 
 ## 6. 對齊與尺寸（Constraints）
@@ -216,6 +238,8 @@ metadata:
 | 掃掠路徑必須位於同一個平面上 | 3D 路徑 | 拆成多個平面掃掠 |
 | 距離是 X mm，但參數是 Y mm | 約束前幾何位置與參數現值不一致 | 先把參數值設成目前距離，或把幾何畫到正確位置 |
 | 交易被復原，可能是過度約束 | 同一方向被約束兩次 | 拿掉重複的約束 |
+| 族群類別沒有子類別「X」 | `subcategory` 名稱不在此族群類別下 | 改用錯誤訊息列出的名稱，或省略 |
+| 檔案已存在 | `rfa_save_as` 預設不覆蓋 | 換檔名，或經使用者確認後傳 `overwrite: true` |
 
 ---
 

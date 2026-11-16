@@ -815,6 +815,12 @@ namespace RevitMCP.Core
                     case "rfa_create_reference_line":
                         result = RfaCreateReferenceLine(parameters);
                         break;
+                    case "rfa_create_symbolic_line":
+                        result = RfaCreateSymbolicLine(parameters);
+                        break;
+                    case "rfa_save_as":
+                        result = RfaSaveAs(parameters);
+                        break;
 
                     default:
                         throw new NotImplementedException($"未實作的命令: {request.CommandName}");
