@@ -2,7 +2,7 @@
 name: rfa-family-authoring
 description: "用 rfa_* 工具在族群編輯器中建立參數化族群的 SOP：前置條件、建立順序（類型→參數→參考平面→尺寸標籤→形體→對齊鎖定→撓曲測試）、四種形體（擠出/融合/掃掠/參考線掃掠）的座標約定、參數化管件配方，以及實測確認行不通的路線。觸發：族群建模、RFA 建模、參數化族群、族群編輯器、rfa_create_extrusion、參考線掃掠、Rhino 轉族群。"
 metadata:
-  version: "1.4"
+  version: "1.5"
   updated: "2026-11-16"
   created: "2026-11-10"
   references:
@@ -18,7 +18,7 @@ metadata:
 
 # RFA 族群建模工作流程（rfa_* Family Authoring）
 
-`rfa_*` 系列共 16 支工具，作用對象是 **Revit 目前作用中的族群文件（.rfa）**。用途是讓 AI 在族群編輯器裡建立參考平面、參數、類型與形體，並把形體綁到參數上，做出可撓曲（flex）的參數化族群。
+`rfa_*` 系列共 17 支工具，作用對象是 **Revit 目前作用中的族群文件（.rfa）**。用途是讓 AI 在族群編輯器裡建立參考平面、參數、類型與形體，並把形體綁到參數上，做出可撓曲（flex）的參數化族群。
 
 本文件定義「怎麼用、照什麼順序用、哪些路線已確認走不通」。工具的完整參數以 `MCP-Server/src/tools/rfa-family-tools.ts` 為準。
 
@@ -32,7 +32,7 @@ metadata:
 | 載入專案需要專案已開啟 | `rfa_load_into_project` 只能載入到同一個 Revit 工作階段中**已開啟**的專案，工具不會替使用者開啟 .rvt。存檔可用 `rfa_save_as` |
 | 材質要先存在於族群檔 | `material` 參數只能填族群檔內已有的材質名稱，工具不會從專案或材質庫帶入 |
 | 單位 | 長度 mm、角度 度、面積 m²、體積 m³、是/否 用 true/false、材質用名稱 |
-| 實機驗證範圍 | 2026-11 只在 **Revit 2027** 實測通過；R22–R26 可編譯但未實測。`rfa_new_family`、`rfa_open_family`、`rfa_load_into_project`、`rfa_create_revolution` 於 2026-11-16 新增，**尚未實機驗證** |
+| 實機驗證範圍 | 2026-11 只在 **Revit 2027** 實測通過；R22–R26 可編譯但未實測。`rfa_new_family`、`rfa_open_family`、`rfa_load_into_project`、`rfa_create_revolution`、`rfa_create_swept_blend` 於 2026-11-16 新增，**尚未實機驗證** |
 
 ---
 
@@ -51,6 +51,7 @@ metadata:
 | `rfa_create_blend` | 融合：底部一個迴圈、頂部一個迴圈 | |
 | `rfa_create_revolution` | 旋轉：輪廓繞草圖平面上的軸線旋轉，可設起訖角度 | |
 | `rfa_create_sweep` | 掃掠：沿平面路徑；或沿參考線＋直徑參數做參數化圓管 | |
+| `rfa_create_swept_blend` | 掃掠融合：沿單一路徑，起點與終點各一個不同斷面 | |
 | `rfa_create_reference_line` | 在參考平面上建立直線或三點圓弧參考線，並約束到其他參考平面 | |
 | `rfa_align_to_reference_plane` | 把形體上與參考平面共面的面鎖到該平面 | |
 | `rfa_create_symbolic_line` | 在參考平面上建立符號線（直線或三點圓弧），可指定子類別線型，並約束到其他參考平面 | |
@@ -72,7 +73,7 @@ metadata:
 3. rfa_add_parameter             建參數（長度、材質、可見性……）
 4. rfa_create_reference_plane    建骨架平面（Left/Right/Front/Back/Top…）
 5. rfa_create_dimension          兩平面＋label 綁參數；三平面＋equalize 設 EQ
-6. rfa_create_extrusion / blend / revolution / sweep   形體畫在「剛好落在平面上」的位置
+6. rfa_create_extrusion / blend / revolution / sweep / swept_blend   形體畫在「剛好落在平面上」的位置
 7. rfa_align_to_reference_plane  把形體的面鎖到平面
 8. rfa_set_family_type           換一組值做撓曲測試，再換回來
 9. rfa_save_as → rfa_load_into_project   存檔取得正式名稱，再載入已開啟的專案
@@ -228,6 +229,16 @@ metadata:
 - `associate` 可綁 `startAngle`、`endAngle`（角度參數）、`material`、`visible`。
 - 回傳 `boundingBoxMm`，用來比對形體是否落在預期位置。
 - **尚未實機驗證的項目**：部分旋轉（非 360°）的起始方向與旋轉方向。做部分旋轉時，務必用回傳的 `boundingBoxMm` 確認方向，不對就對調軸線的 start / end 或調整角度，不要假設。
+
+### 5.10 掃掠融合（Swept Blend）
+
+沿一條路徑，從起點斷面漸變到終點斷面，適合變斷面構件（漸縮管、錐形桿、變斷面梁托）。
+
+- 路徑只能是**單一曲線**：`path`（一段直線或一段三點圓弧，3D mm）或 `pathReferenceLineId`（一條參考線，形體會跟著參考線動）。多段路徑請拆成多個掃掠融合。
+- `startProfile`、`endProfile` 各一個封閉迴圈，座標約定同掃掠斷面（[u, v] mm，Revit 會放到路徑端點並垂直於路徑）。
+- `associate` 可綁 `material`、`visible`。
+- **建立後務必核對回傳值**：`startProfileCurves` / `endProfileCurves` 是 Revit 實際放在兩端的斷面組成（例如「4 Line」「2 Arc」），`profilesSwapped` 表示工具是否對調重建過，`boundingBoxMm` 可確認哪一端較寬。
+- **尚未實機驗證的項目**：工具用幾何位置判斷哪個斷面落在路徑起點，這個判斷假設 Revit 讀回的斷面是模型座標。若 warnings 出現「無法判斷兩端」，以 `boundingBoxMm` 為準人工確認；兩端相反時，把 `startProfile` 與 `endProfile` 對調重建。
 
 ---
 

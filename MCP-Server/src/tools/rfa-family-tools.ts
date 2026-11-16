@@ -486,4 +486,41 @@ export const rfaFamilyTools: Tool[] = [
             required: ["profiles", "axis"],
         },
     },
+    {
+        name: "rfa_create_swept_blend",
+        description:
+            "Create a swept blend in the active family document. Lofts from startProfile to endProfile (one closed loop each, any shapes) along ONE path curve " +
+            "(transitions, tapered ducts, horns, curved tapering arms). " +
+            "Path: exactly one of path ({line: {start, end}} or {arc: {start, mid, end}}, [x, y, z] mm in family coordinates) or pathReferenceLineId " +
+            "(one reference line from rfa_create_reference_line, so the form follows the line when parameters move it). A swept blend path is a single curve: " +
+            "for a polyline or multi-segment path, split it into several swept blends. " +
+            "Profiles are drawn in 2D [u, v] mm around the origin, like rfa_create_sweep profiles, and Revit places each one perpendicular to the path at its own end. " +
+            "The tool verifies which profile Revit actually put at the path start and, if Revit swapped them, recreates the form the right way round (reported in warnings). " +
+            "Returns path start/end/length, the curve makeup Revit has at each end (startProfileCurves / endProfileCurves, e.g. \"4 Line\" or \"2 Arc\"), the placement evidence, " +
+            "and the bounding box in mm as a self-check. Optionally assign a material and bind material/visible to existing family parameters.",
+        inputSchema: {
+            type: "object",
+            properties: {
+                path: {
+                    type: "object",
+                    description: "Single path curve in mm (family coordinates): {line: {start, end}} or {arc: {start, mid, end}}. Not an array.",
+                    properties: {
+                        line: { type: "object", properties: { start: { type: "array", items: { type: "number" } }, end: { type: "array", items: { type: "number" } } } },
+                        arc: { type: "object", properties: { start: { type: "array", items: { type: "number" } }, mid: { type: "array", items: { type: "number" } }, end: { type: "array", items: { type: "number" } } } },
+                    },
+                },
+                pathReferenceLineId: { type: "number", description: "Alternative to path: element id of ONE reference line; the swept blend follows it." },
+                startProfile: { ...profileLoopSchema, description: "Closed loop at the path start, [u, v] mm around the origin." },
+                endProfile: { ...profileLoopSchema, description: "Closed loop at the path end, [u, v] mm around the origin." },
+                isSolid: { type: "boolean", description: "true = solid (default), false = void.", default: true },
+                material: { type: "string", description: "Material name that already exists in the family document (solid only)." },
+                associate: {
+                    type: "object",
+                    description: "Bind properties to family parameters. Keys: material (material param), visible (yes/no param).",
+                    additionalProperties: { type: "string" },
+                },
+            },
+            required: ["startProfile", "endProfile"],
+        },
+    },
 ];

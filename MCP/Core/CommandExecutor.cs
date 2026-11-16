@@ -840,6 +840,10 @@ namespace RevitMCP.Core
                         result = RfaCreateRevolution(parameters);
                         break;
 
+                    case "rfa_create_swept_blend":
+                        result = RfaCreateSweptBlend(parameters);
+                        break;
+
                     default:
                         throw new NotImplementedException($"未實作的命令: {request.CommandName}");
                 }
