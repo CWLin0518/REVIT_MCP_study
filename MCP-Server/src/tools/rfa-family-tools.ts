@@ -45,7 +45,8 @@ export const rfaFamilyTools: Tool[] = [
     {
         name: "rfa_get_document_info",
         description:
-            "Read the active family (.rfa) document. Returns category, placement type, types, family parameters with current values, reference planes, levels, views, existing solid/void forms (each with its subcategory name or null and its visibility settings: coarse, medium, fine, planRcp, frontBack, leftRight, whenCutInPlanRcp, or null when the form has none), the subcategories of the family category (id + name) and the materials available in the family document (id + name; forms and material parameters can only reference these). " +
+            "Read the active family (.rfa) document. Returns category, placement type, types, family parameters with current values, reference planes, levels, views, existing solid/void forms (each with its subcategory name or null and its visibility settings: coarse, medium, fine, planRcp, frontBack, leftRight, whenCutInPlanRcp, or null when the form has none), the subcategories of the family category (id + name), the materials available in the family document (id + name; forms and material parameters can only reference these) " +
+            "and nestedFamilies: every editable, non-in-place family loaded into this family document with id, name, category, type names and instanceCount (use rfa_place_nested_family to load and place more). " +
             "Call this first before the other editing rfa_* tools; it fails if the active document is a project instead of a family (use rfa_new_family or rfa_open_family to make a family active).",
         inputSchema: { type: "object", properties: {} },
     },
@@ -616,6 +617,61 @@ export const rfaFamilyTools: Tool[] = [
                 },
             },
             required: ["elementIds"],
+        },
+    },
+    {
+        name: "rfa_place_nested_family",
+        description:
+            "Load and place a nested family in the active family. Source is exactly one of familyPath (absolute path of an .rfa to load into the active family document; reload/overwriteParameterValues control what happens when it is already loaded, " +
+            "and an already-loaded family is reused with wasAlreadyLoaded: true) or familyName (a family already loaded in the family document; see nestedFamilies in rfa_get_document_info). The active family's own file cannot be nested into itself. " +
+            "typeName picks the type (default: first by name; the error lists available types). Each item in instances is placed at locationMm [x, y, z] with an optional rotationDeg about the vertical axis through that point; " +
+            "instances may be omitted to only load the family and/or bind parameters. " +
+            "Supported placement types: OneLevelBased (hosted on the family's level whose elevation is at or below z), WorkPlaneBased that is not face-based, and ViewBased 2D families (detail items / annotations, placed in viewName or a plan view). " +
+            "Face-based, wall/floor/ceiling-hosted, line-based, two-level and adaptive families are rejected per item with the placement type named. " +
+            "associate maps NESTED parameter name -> HOST family parameter name (e.g. {\"Width\": \"Handle Width\", \"visible\": \"Show Handle\"}); each key is looked up on the instance first, then on the type (type parameters are bound once on the type and only to host type parameters); " +
+            "the key \"visible\" is the instance's built-in Visible parameter. applyToExisting also binds existing instances of that type. Binding problems are reported in warnings naming both sides and never abort. " +
+            "Returns family (name, id, category, placementType, wasAlreadyLoaded, reloaded), type, availableTypes, placed (id, locationMm and rotationDeg read back), associated, nestedParameters (editable instance / type parameter names of the nested family), errors (per instance index) and warnings. " +
+            "Limitation: placed instances sit at fixed coordinates and are NOT constrained to reference planes, so they do not move when the host family flexes unless the nested family is driven through associated parameters.",
+        inputSchema: {
+            type: "object",
+            properties: {
+                familyPath: { type: "string", description: "Absolute path of the .rfa to load into the active family document. Give this or familyName, not both." },
+                familyName: { type: "string", description: "Name of a family already loaded in the active family document. Give this or familyPath, not both." },
+                reload: {
+                    type: "boolean",
+                    description: "With familyPath: when a family of that name is already loaded, reload it from the file. Default false (the loaded version is reused).",
+                    default: false,
+                },
+                overwriteParameterValues: {
+                    type: "boolean",
+                    description: "With reload: overwrite the existing type parameter values with the file's. Default false.",
+                    default: false,
+                },
+                typeName: { type: "string", description: "Type of the nested family to place. Default: the first type by name." },
+                instances: {
+                    type: "array",
+                    description: "Instances to place. May be empty or omitted.",
+                    items: {
+                        type: "object",
+                        properties: {
+                            locationMm: { type: "array", items: { type: "number" }, minItems: 3, maxItems: 3, description: "[x, y, z] in mm, family coordinates." },
+                            rotationDeg: { type: "number", description: "Rotation about the vertical Z axis through locationMm, degrees. Default 0." },
+                        },
+                        required: ["locationMm"],
+                    },
+                },
+                viewName: { type: "string", description: "ViewBased (2D) families only: name of the view to place them in. Default: the active plan view, else the first floor plan." },
+                associate: {
+                    type: "object",
+                    description: "NESTED parameter name -> HOST family parameter name. The host parameter must already exist (rfa_add_parameter) and have the same data type. Key \"visible\" = the instance's Visible parameter (bind to a yes/no host parameter).",
+                    additionalProperties: { type: "string" },
+                },
+                applyToExisting: {
+                    type: "boolean",
+                    description: "Also apply associate to instances of this type that already exist in the family document. Default false.",
+                    default: false,
+                },
+            },
         },
     },
 ];

@@ -260,6 +260,25 @@ namespace RevitMCP.Core
                 .OrderBy(m => m.Name, StringComparer.OrdinalIgnoreCase)
                 .Select(m => new { id = m.Id.GetIdValue(), name = m.Name }).ToList();
 
+            // 已載入的巢狀族群（可編輯、非內建、不含族群檔自己）與各自的類型、實體數
+            IdType ownerId = fam?.Id.GetIdValue() ?? (IdType)(-1);
+            var instanceCounts = new FilteredElementCollector(doc).OfClass(typeof(FamilyInstance)).Cast<FamilyInstance>()
+                .Where(fi => fi.Symbol?.Family != null)
+                .GroupBy(fi => fi.Symbol.Family.Id.GetIdValue())
+                .ToDictionary(g => g.Key, g => g.Count());
+            var nestedFamilies = new FilteredElementCollector(doc).OfClass(typeof(Family)).Cast<Family>()
+                .Where(f => f.Id.GetIdValue() != ownerId && f.IsEditable && !f.IsInPlace)
+                .OrderBy(f => f.Name, StringComparer.OrdinalIgnoreCase)
+                .Select(f => new
+                {
+                    id = f.Id.GetIdValue(),
+                    name = f.Name,
+                    category = f.FamilyCategory?.Name,
+                    types = f.GetFamilySymbolIds().Select(id => doc.GetElement(id)?.Name).Where(n => n != null)
+                        .OrderBy(n => n, StringComparer.OrdinalIgnoreCase).ToList(),
+                    instanceCount = instanceCounts.TryGetValue(f.Id.GetIdValue(), out int c) ? c : 0,
+                }).ToList();
+
             return new
             {
                 title = doc.Title,
@@ -275,6 +294,7 @@ namespace RevitMCP.Core
                 forms,
                 subcategories,
                 materials,
+                nestedFamilies,
                 units = "長度 mm、角度 度、面積 m²、體積 m³",
             };
         }

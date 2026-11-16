@@ -32,7 +32,7 @@ export async function executeRevitTool(
     const commandName = toolName === "query_elements_with_filter" ? "query_elements" : toolName;
 
     // 跨文件命令需要較長 timeout（開啟 .rvt/.rfa 檔案較費時）
-    const CROSS_DOC_COMMANDS = new Set(["read_source_file_sheets", "copy_sheets_from_file", "sync_sheet_parameters_from_source", "inject_green_material_into_family", "rfa_new_family", "rfa_open_family", "rfa_load_into_project"]);
+    const CROSS_DOC_COMMANDS = new Set(["read_source_file_sheets", "copy_sheets_from_file", "sync_sheet_parameters_from_source", "inject_green_material_into_family", "rfa_new_family", "rfa_open_family", "rfa_load_into_project", "rfa_place_nested_family"]);
     const timeoutMs = CROSS_DOC_COMMANDS.has(commandName) ? 120000 : 30000;
 
     // 發送命令到 Revit

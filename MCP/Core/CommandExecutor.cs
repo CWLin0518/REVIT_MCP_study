@@ -851,6 +851,10 @@ namespace RevitMCP.Core
                         result = RfaSetFormVisibility(parameters);
                         break;
 
+                    case "rfa_place_nested_family":
+                        result = RfaPlaceNestedFamily(parameters);
+                        break;
+
                     default:
                         throw new NotImplementedException($"未實作的命令: {request.CommandName}");
                 }

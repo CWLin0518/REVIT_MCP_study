@@ -2,7 +2,7 @@
 name: rfa-family-authoring
 description: "用 rfa_* 工具在族群編輯器中建立參數化族群的 SOP：前置條件、建立順序（類型→參數→參考平面→尺寸標籤→形體→對齊鎖定→撓曲測試）、四種形體（擠出/融合/掃掠/參考線掃掠）的座標約定、參數化管件配方，以及實測確認行不通的路線。觸發：族群建模、RFA 建模、參數化族群、族群編輯器、rfa_create_extrusion、參考線掃掠、Rhino 轉族群。"
 metadata:
-  version: "1.7"
+  version: "1.8"
   updated: "2026-11-16"
   created: "2026-11-10"
   references:
@@ -18,7 +18,7 @@ metadata:
 
 # RFA 族群建模工作流程（rfa_* Family Authoring）
 
-`rfa_*` 系列共 19 支工具，作用對象是 **Revit 目前作用中的族群文件（.rfa）**。用途是讓 AI 在族群編輯器裡建立參考平面、參數、類型與形體，並把形體綁到參數上，做出可撓曲（flex）的參數化族群。
+`rfa_*` 系列共 20 支工具，作用對象是 **Revit 目前作用中的族群文件（.rfa）**。用途是讓 AI 在族群編輯器裡建立參考平面、參數、類型與形體，並把形體綁到參數上，做出可撓曲（flex）的參數化族群。
 
 本文件定義「怎麼用、照什麼順序用、哪些路線已確認走不通」。工具的完整參數以 `MCP-Server/src/tools/rfa-family-tools.ts` 為準。
 
@@ -32,7 +32,7 @@ metadata:
 | 載入專案需要專案已開啟 | `rfa_load_into_project` 只能載入到同一個 Revit 工作階段中**已開啟**的專案，工具不會替使用者開啟 .rvt。存檔可用 `rfa_save_as` |
 | 材質要先存在於族群檔 | `material` 參數只能填族群檔內已有的材質名稱，工具不會從專案或材質庫帶入。缺的材質用 `rfa_create_material` 建立；現有材質可從 `rfa_get_document_info` 的 `materials` 查到 |
 | 單位 | 長度 mm、角度 度、面積 m²、體積 m³、是/否 用 true/false、材質用名稱 |
-| 實機驗證範圍 | 2026-11 只在 **Revit 2027** 實測通過；R22–R26 可編譯但未實測。`rfa_new_family`、`rfa_open_family`、`rfa_load_into_project`、`rfa_create_revolution`、`rfa_create_swept_blend`、`rfa_create_material`、`rfa_set_form_visibility` 於 2026-11-16 新增，**尚未實機驗證** |
+| 實機驗證範圍 | 2026-11 只在 **Revit 2027** 實測通過；R22–R26 可編譯但未實測。`rfa_new_family`、`rfa_open_family`、`rfa_load_into_project`、`rfa_create_revolution`、`rfa_create_swept_blend`、`rfa_create_material`、`rfa_set_form_visibility`、`rfa_place_nested_family` 於 2026-11-16 新增，**尚未實機驗證** |
 
 ---
 
@@ -42,7 +42,7 @@ metadata:
 |---|---|---|
 | `rfa_new_family` | 以族群樣板（.rft）建立新族群、存檔並設為作用中文件 | |
 | `rfa_open_family` | 開啟既有 .rfa 並設為作用中文件；已開啟則切換過去 | |
-| `rfa_get_document_info` | 讀族群類別、放置型式、類型、參數現值、參考平面、樓層、視圖、既有形體（含子類別與可見性）、子類別、材質 | ✅ |
+| `rfa_get_document_info` | 讀族群類別、放置型式、類型、參數現值、參考平面、樓層、視圖、既有形體（含子類別與可見性）、子類別、材質、巢狀族群 | ✅ |
 | `rfa_set_family_type` | 建立或更新類型，設值／公式，可改名；被操作的類型會成為目前類型 | |
 | `rfa_add_parameter` | 新增族群參數（9 種資料型別，可帶公式或初值） | |
 | `rfa_create_material` | 在族群檔內建立材質（顏色、透明度、類別，或複製既有材質） | |
@@ -55,6 +55,7 @@ metadata:
 | `rfa_create_swept_blend` | 掃掠融合：沿單一路徑，起點與終點各一個不同斷面 | |
 | `rfa_create_reference_line` | 在參考平面上建立直線或三點圓弧參考線，並約束到其他參考平面 | |
 | `rfa_set_form_visibility` | 把形體指派到子類別（可自動建立並設線色／線寬／材質），設定詳細等級與視圖方向的可見性 | |
+| `rfa_place_nested_family` | 載入巢狀族群、放置實例、把巢狀參數關聯到主族群參數 | |
 | `rfa_align_to_reference_plane` | 把形體上與參考平面共面的面鎖到該平面 | |
 | `rfa_create_symbolic_line` | 在參考平面上建立符號線（直線或三點圓弧），可指定子類別線型，並約束到其他參考平面 | |
 | `rfa_save_as` | 把作用中的族群文件另存為 .rfa | |
@@ -264,6 +265,19 @@ metadata:
 - 常見用法：細部形體設 `coarse: false`，讓粗略等級只顯示簡化量體；五金、把手放到獨立子類別，專案端才能用可見性／圖形單獨控制。
 - 每個形體各自處理，一個失敗不影響其他；失敗原因列在 `errors`。讀回值與要求不同時會出現在 warnings（例如不可切割的類別設定 `whenCutInPlanRcp`）。
 - 與「可見」參數的差別：`associate.visible` 是讓某個類型或實例**整個不產生**該形體；這裡設定的是形體存在、但在特定等級或視圖方向不畫出來。
+
+### 5.13 巢狀族群（Nested Family）
+
+`rfa_place_nested_family` 一次處理「載入 → 放置 → 關聯參數」。門五金、設備附件、家具配件都靠這個。
+
+- 來源擇一：`familyPath`（載入一個 .rfa）或 `familyName`（族群檔內已載入的族群，可從 `rfa_get_document_info` 的 `nestedFamilies` 查）。
+- `typeName` 省略時取名稱排序第一個類型；回傳的 `availableTypes` 列出全部類型。
+- `instances`：每個給 `locationMm` 與可選的 `rotationDeg`（繞通過該點的垂直軸）。可以省略，只做載入或只補關聯。
+- `associate`：`{ 巢狀參數名: 主族群參數名 }`。先找實例參數，再找類型參數；特殊鍵 `visible` 代表實例的「可見」。回傳的 `nestedParameters` 列出巢狀族群可關聯的參數名稱，**先看這份清單再填，不要猜參數名**。
+- **型別與層級要對得上**：兩邊資料型別需相同；巢狀族群的**類型參數只能關聯到主族群的類型參數**，關聯到實例參數會被略過並出現在 warnings。
+- 支援的放置型式：樓層式、工作平面式（非面式）、2D 視圖式。需要主體或面的型式（牆上、面上、線式、兩樓層式、自適應）會逐筆回報不支援，請使用者在 Revit 手動放置後，再用 `applyToExisting: true` 補上參數關聯。
+- **已知限制**：實例放在固定座標，這支工具不會把它約束到參考平面。主族群撓曲時實例不會跟著移動，除非巢狀族群本身的尺寸由關聯參數驅動。位置需要跟著參數動的情況，目前要由使用者在 Revit 手動對齊鎖定。
+- `reload: true` 會以檔案重新載入已存在的巢狀族群；`overwriteParameterValues: true` 會覆蓋其類型參數值，**執行前先向使用者確認**。
 
 ---
 
