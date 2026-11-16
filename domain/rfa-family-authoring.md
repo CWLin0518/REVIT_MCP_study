@@ -2,8 +2,8 @@
 name: rfa-family-authoring
 description: "用 rfa_* 工具在族群編輯器中建立參數化族群的 SOP：前置條件、建立順序（類型→參數→參考平面→尺寸標籤→形體→對齊鎖定→撓曲測試）、四種形體（擠出/融合/掃掠/參考線掃掠）的座標約定、參數化管件配方，以及實測確認行不通的路線。觸發：族群建模、RFA 建模、參數化族群、族群編輯器、rfa_create_extrusion、參考線掃掠、Rhino 轉族群。"
 metadata:
-  version: "1.1"
-  updated: "2026-11-12"
+  version: "1.2"
+  updated: "2026-11-16"
   created: "2026-11-10"
   references:
     - "Revit API: FamilyItemFactory (NewExtrusion / NewBlend / NewSweep / NewReferencePlane / NewDimension / NewAlignment)"
@@ -18,7 +18,7 @@ metadata:
 
 # RFA 族群建模工作流程（rfa_* Family Authoring）
 
-`rfa_*` 系列共 12 支工具，作用對象是 **Revit 目前作用中的族群文件（.rfa）**。用途是讓 AI 在族群編輯器裡建立參考平面、參數、類型與形體，並把形體綁到參數上，做出可撓曲（flex）的參數化族群。
+`rfa_*` 系列共 14 支工具，作用對象是 **Revit 目前作用中的族群文件（.rfa）**。用途是讓 AI 在族群編輯器裡建立參考平面、參數、類型與形體，並把形體綁到參數上，做出可撓曲（flex）的參數化族群。
 
 本文件定義「怎麼用、照什麼順序用、哪些路線已確認走不通」。工具的完整參數以 `MCP-Server/src/tools/rfa-family-tools.ts` 為準。
 
@@ -28,11 +28,11 @@ metadata:
 
 | 條件 | 說明 |
 |---|---|
-| 作用中文件必須是族群檔 | 由使用者在 Revit 手動開啟既有 .rfa，或用族群樣板新建。作用中文件是專案檔時，所有 `rfa_*` 工具都會直接拒絕 |
-| 工具不負責開檔、載入專案 | 沒有開新族群、Load into Project 的工具，這兩步由使用者在 Revit 中完成。存檔可用 `rfa_save_as` |
+| 作用中文件必須是族群檔 | 用 `rfa_new_family`（樣板新建）或 `rfa_open_family`（開啟既有 .rfa）取得，也可由使用者在 Revit 手動開啟。作用中文件是專案檔時，其餘 `rfa_*` 工具都會直接拒絕 |
+| 工具不負責載入專案 | 目前沒有 Load into Project 的工具，這一步由使用者在 Revit 中完成。存檔可用 `rfa_save_as` |
 | 材質要先存在於族群檔 | `material` 參數只能填族群檔內已有的材質名稱，工具不會從專案或材質庫帶入 |
 | 單位 | 長度 mm、角度 度、面積 m²、體積 m³、是/否 用 true/false、材質用名稱 |
-| 實機驗證範圍 | 2026-11 只在 **Revit 2027** 實測通過；R22–R26 可編譯但未實測 |
+| 實機驗證範圍 | 2026-11 只在 **Revit 2027** 實測通過；R22–R26 可編譯但未實測。`rfa_new_family`、`rfa_open_family` 於 2026-11-16 新增，**尚未實機驗證** |
 
 ---
 
@@ -40,6 +40,8 @@ metadata:
 
 | 工具 | 作用 | 唯讀 |
 |---|---|---|
+| `rfa_new_family` | 以族群樣板（.rft）建立新族群、存檔並設為作用中文件 | |
+| `rfa_open_family` | 開啟既有 .rfa 並設為作用中文件；已開啟則切換過去 | |
 | `rfa_get_document_info` | 讀族群類別、放置型式、類型、參數現值、參考平面、樓層、視圖、既有形體 | ✅ |
 | `rfa_set_family_type` | 建立或更新類型，設值／公式，可改名；被操作的類型會成為目前類型 | |
 | `rfa_add_parameter` | 新增族群參數（9 種資料型別，可帶公式或初值） | |
@@ -62,6 +64,7 @@ metadata:
 參數化族群的關係鏈是：**參數 → 尺寸標籤 → 參考平面 → 鎖定 → 形體**。任何一環沒接上，形體就不會跟著參數動。
 
 ```
+0. rfa_new_family / rfa_open_family   沒有作用中的族群檔時，先建立或開啟
 1. rfa_get_document_info         先讀現況，確認是族群檔、有沒有類型
 2. rfa_set_family_type           樣板常常是 0 個類型 → 先建一個類型
 3. rfa_add_parameter             建參數（長度、材質、可見性……）
@@ -192,6 +195,16 @@ metadata:
 - 檔案已存在時預設拒絕；確定要覆蓋才傳 `overwrite: true`。**覆蓋前先向使用者確認**。
 - 存檔後，作用中的族群文件就指向新檔；原本的 .rfa 不會被改動。
 
+### 5.7 開新族群與開啟族群（New / Open）
+
+`rfa_new_family` 以樣板建立新族群，`rfa_open_family` 開啟既有 .rfa；兩者完成後該族群就是作用中文件。
+
+- `rfa_new_family`：`templatePath`（.rft 完整路徑）與 `templateName`（樣板檔名，在 Revit 的族群樣板資料夾內遞迴搜尋）擇一。樣板名稱隨 Revit 語言版本不同；找不到時錯誤訊息會列出可用名稱，照著選即可，不要憑印象猜。
+- `savePath` 必填，規則同 `rfa_save_as`（完整路徑、資料夾需已存在、既有檔案要 `overwrite: true`）。新族群一定會先存檔，因為 Revit 無法把只存在記憶體中的文件設為作用中文件。
+- `rfa_open_family`：檔案已在 Revit 開啟時只做切換，回傳 `wasAlreadyOpen: true`。
+- 兩支工具都會切換 Revit 的作用中視窗。原本作用中的專案檔不會被關閉，但之後依賴作用中文件的工具會作用在族群檔上，要回專案需由使用者切換視窗。
+- 若 Revit 拒絕切換文件，錯誤訊息會說明檔案是否已寫入磁碟；此時請使用者在 Revit 手動開啟該路徑。
+
 ---
 
 ## 6. 對齊與尺寸（Constraints）
@@ -239,7 +252,9 @@ metadata:
 | 距離是 X mm，但參數是 Y mm | 約束前幾何位置與參數現值不一致 | 先把參數值設成目前距離，或把幾何畫到正確位置 |
 | 交易被復原，可能是過度約束 | 同一方向被約束兩次 | 拿掉重複的約束 |
 | 族群類別沒有子類別「X」 | `subcategory` 名稱不在此族群類別下 | 改用錯誤訊息列出的名稱，或省略 |
-| 檔案已存在 | `rfa_save_as` 預設不覆蓋 | 換檔名，或經使用者確認後傳 `overwrite: true` |
+| 找不到名為「X」的族群樣板 | `templateName` 與實際檔名不符（語言版本不同） | 從錯誤訊息列出的可用樣板中選，或改傳 `templatePath` |
+| OpenAndActivateDocument 失敗 | Revit 不允許在目前狀態切換文件 | 請使用者在 Revit 手動開啟訊息中的路徑 |
+| 檔案已存在 | `rfa_save_as`、`rfa_new_family` 預設不覆蓋 | 換檔名，或經使用者確認後傳 `overwrite: true` |
 
 ---
 

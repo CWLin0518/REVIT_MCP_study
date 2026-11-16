@@ -2,9 +2,10 @@ import { Tool } from "@modelcontextprotocol/sdk/types.js";
 
 /**
  * RFA family-editor tools (rfa_*). They operate on the ACTIVE family document:
- * the user opens or creates a .rfa from a template in Revit first, then these tools
+ * rfa_new_family (from a .rft template) or rfa_open_family (existing .rfa) makes a family
+ * the active document — or the user opens one in Revit by hand — then the other tools
  * add reference planes, extrusions, parameters and types inside it.
- * C# handlers: MCP/Core/Commands/CommandExecutor.RfaFamily.cs.
+ * C# handlers: MCP/Core/Commands/CommandExecutor.RfaFamily*.cs.
  * Units: length mm, angle degrees, area m², volume m³.
  */
 
@@ -44,7 +45,7 @@ export const rfaFamilyTools: Tool[] = [
         name: "rfa_get_document_info",
         description:
             "Read the active family (.rfa) document. Returns category, placement type, types, family parameters with current values, reference planes, levels, views and existing solid/void forms. " +
-            "Call this first before any other rfa_* tool; it fails if the active document is a project instead of a family.",
+            "Call this first before the other editing rfa_* tools; it fails if the active document is a project instead of a family (use rfa_new_family or rfa_open_family to make a family active).",
         inputSchema: { type: "object", properties: {} },
     },
     {
@@ -385,6 +386,37 @@ export const rfaFamilyTools: Tool[] = [
             properties: {
                 filePath: { type: "string", description: "Absolute path of the .rfa to write (\".rfa\" is appended when no extension is given)." },
                 overwrite: { type: "boolean", description: "Replace the file if it already exists. Default false.", default: false },
+            },
+            required: ["filePath"],
+        },
+    },
+    {
+        name: "rfa_new_family",
+        description:
+            "Create a new family document from a template. Builds the family from a .rft, saves it to savePath, then opens it as the active document so the other rfa_* tools work on it. " +
+            "Give exactly one of templatePath (absolute .rft path) or templateName (file name searched under Revit's family template folder, e.g. \"Metric Generic Model\"); " +
+            "when the name is not found the error lists available templates. savePath must be an absolute path in an existing folder; an existing file is refused unless overwrite is true, " +
+            "and a file currently open in Revit is always refused. If Revit cannot activate the new document, the error says whether the file was saved so it can be opened by hand.",
+        inputSchema: {
+            type: "object",
+            properties: {
+                templatePath: { type: "string", description: "Absolute path of a family template (.rft)." },
+                templateName: { type: "string", description: "Template file name with or without \".rft\", searched recursively under Revit's family template folder." },
+                savePath: { type: "string", description: "Absolute path of the .rfa to write (\".rfa\" is appended when no extension is given)." },
+                overwrite: { type: "boolean", description: "Replace savePath if it already exists. Default false.", default: false },
+            },
+            required: ["savePath"],
+        },
+    },
+    {
+        name: "rfa_open_family",
+        description:
+            "Open a family file as the active document. Opens an existing .rfa in Revit (or switches to it when it is already open) so the other rfa_* tools work on it. " +
+            "Returns category, placement type, types and wasAlreadyOpen. filePath must be an absolute path to an existing .rfa.",
+        inputSchema: {
+            type: "object",
+            properties: {
+                filePath: { type: "string", description: "Absolute path of the .rfa to open." },
             },
             required: ["filePath"],
         },

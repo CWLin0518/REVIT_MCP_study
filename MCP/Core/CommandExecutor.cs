@@ -827,6 +827,12 @@ namespace RevitMCP.Core
                     case "rfa_save_as":
                         result = RfaSaveAs(parameters);
                         break;
+                    case "rfa_new_family":
+                        result = RfaNewFamily(parameters);
+                        break;
+                    case "rfa_open_family":
+                        result = RfaOpenFamily(parameters);
+                        break;
 
                     default:
                         throw new NotImplementedException($"未實作的命令: {request.CommandName}");

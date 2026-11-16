@@ -120,13 +120,16 @@ namespace RevitMCP.Core
 
         #region rfa_save_as
 
-        private object RfaSaveAs(JObject parameters)
+        /// <summary>
+        /// 驗證並正規化要寫入的 .rfa 路徑：必須是完整路徑；沒有副檔名時補 .rfa，其他副檔名拒絕；
+        /// 資料夾必須已存在（不自動建立）。不檢查檔案是否已存在，由呼叫端依 overwrite 決定。
+        /// rfa_save_as 與 rfa_new_family 共用。
+        /// </summary>
+        private static string RfaResolveRfaSavePath(string raw, string paramName)
         {
-            Document doc = GetActiveFamilyDocument();
-
-            string path = parameters["filePath"]?.Value<string>()?.Trim();
-            if (string.IsNullOrEmpty(path)) throw new Exception("請提供 filePath（.rfa 的完整路徑）");
-            if (!Path.IsPathRooted(path)) throw new Exception($"filePath 必須是完整路徑，收到: {path}");
+            string path = raw?.Trim();
+            if (string.IsNullOrEmpty(path)) throw new Exception($"請提供 {paramName}（.rfa 的完整路徑）");
+            if (!Path.IsPathRooted(path)) throw new Exception($"{paramName} 必須是完整路徑，收到: {path}");
             string ext = Path.GetExtension(path);
             if (string.IsNullOrEmpty(ext)) path += ".rfa";
             else if (!ext.Equals(".rfa", StringComparison.OrdinalIgnoreCase))
@@ -136,6 +139,14 @@ namespace RevitMCP.Core
             string dir = Path.GetDirectoryName(path);
             if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir))
                 throw new Exception($"資料夾不存在: {dir}（工具不會自動建立資料夾）");
+            return path;
+        }
+
+        private object RfaSaveAs(JObject parameters)
+        {
+            Document doc = GetActiveFamilyDocument();
+
+            string path = RfaResolveRfaSavePath(parameters["filePath"]?.Value<string>(), "filePath");
 
             bool overwrite = parameters["overwrite"]?.Value<bool>() ?? false;
             bool existed = File.Exists(path);
