@@ -2,7 +2,7 @@
 name: rfa-family-authoring
 description: "用 rfa_* 工具在族群編輯器中建立參數化族群的 SOP：前置條件、建立順序（類型→參數→參考平面→尺寸標籤→形體→對齊鎖定→撓曲測試）、四種形體（擠出/融合/掃掠/參考線掃掠）的座標約定、參數化管件配方，以及實測確認行不通的路線。觸發：族群建模、RFA 建模、參數化族群、族群編輯器、rfa_create_extrusion、參考線掃掠、Rhino 轉族群。"
 metadata:
-  version: "1.2"
+  version: "1.3"
   updated: "2026-11-16"
   created: "2026-11-10"
   references:
@@ -18,7 +18,7 @@ metadata:
 
 # RFA 族群建模工作流程（rfa_* Family Authoring）
 
-`rfa_*` 系列共 14 支工具，作用對象是 **Revit 目前作用中的族群文件（.rfa）**。用途是讓 AI 在族群編輯器裡建立參考平面、參數、類型與形體，並把形體綁到參數上，做出可撓曲（flex）的參數化族群。
+`rfa_*` 系列共 15 支工具，作用對象是 **Revit 目前作用中的族群文件（.rfa）**。用途是讓 AI 在族群編輯器裡建立參考平面、參數、類型與形體，並把形體綁到參數上，做出可撓曲（flex）的參數化族群。
 
 本文件定義「怎麼用、照什麼順序用、哪些路線已確認走不通」。工具的完整參數以 `MCP-Server/src/tools/rfa-family-tools.ts` 為準。
 
@@ -29,10 +29,10 @@ metadata:
 | 條件 | 說明 |
 |---|---|
 | 作用中文件必須是族群檔 | 用 `rfa_new_family`（樣板新建）或 `rfa_open_family`（開啟既有 .rfa）取得，也可由使用者在 Revit 手動開啟。作用中文件是專案檔時，其餘 `rfa_*` 工具都會直接拒絕 |
-| 工具不負責載入專案 | 目前沒有 Load into Project 的工具，這一步由使用者在 Revit 中完成。存檔可用 `rfa_save_as` |
+| 載入專案需要專案已開啟 | `rfa_load_into_project` 只能載入到同一個 Revit 工作階段中**已開啟**的專案，工具不會替使用者開啟 .rvt。存檔可用 `rfa_save_as` |
 | 材質要先存在於族群檔 | `material` 參數只能填族群檔內已有的材質名稱，工具不會從專案或材質庫帶入 |
 | 單位 | 長度 mm、角度 度、面積 m²、體積 m³、是/否 用 true/false、材質用名稱 |
-| 實機驗證範圍 | 2026-11 只在 **Revit 2027** 實測通過；R22–R26 可編譯但未實測。`rfa_new_family`、`rfa_open_family` 於 2026-11-16 新增，**尚未實機驗證** |
+| 實機驗證範圍 | 2026-11 只在 **Revit 2027** 實測通過；R22–R26 可編譯但未實測。`rfa_new_family`、`rfa_open_family`、`rfa_load_into_project` 於 2026-11-16 新增，**尚未實機驗證** |
 
 ---
 
@@ -54,6 +54,7 @@ metadata:
 | `rfa_align_to_reference_plane` | 把形體上與參考平面共面的面鎖到該平面 | |
 | `rfa_create_symbolic_line` | 在參考平面上建立符號線（直線或三點圓弧），可指定子類別線型，並約束到其他參考平面 | |
 | `rfa_save_as` | 把作用中的族群文件另存為 .rfa | |
+| `rfa_load_into_project` | 把作用中的族群載入已開啟的專案；已存在則重新載入 | |
 
 同名的參考平面與參數會**跳過不重建**，所以重跑同一步是安全的。
 
@@ -73,6 +74,7 @@ metadata:
 6. rfa_create_extrusion / blend / sweep   形體畫在「剛好落在平面上」的位置
 7. rfa_align_to_reference_plane  把形體的面鎖到平面
 8. rfa_set_family_type           換一組值做撓曲測試，再換回來
+9. rfa_save_as → rfa_load_into_project   存檔取得正式名稱，再載入已開啟的專案
 ```
 
 ### 步驟要點
@@ -205,6 +207,16 @@ metadata:
 - 兩支工具都會切換 Revit 的作用中視窗。原本作用中的專案檔不會被關閉，但之後依賴作用中文件的工具會作用在族群檔上，要回專案需由使用者切換視窗。
 - 若 Revit 拒絕切換文件，錯誤訊息會說明檔案是否已寫入磁碟；此時請使用者在 Revit 手動開啟該路徑。
 
+### 5.8 載入專案（Load into Project）
+
+`rfa_load_into_project` 把作用中的族群載入同一個 Revit 工作階段中已開啟的專案。
+
+- **先存檔再載入**：專案看到的族群名稱就是族群文件的標題。從未存檔的族群會以「Family1」這類暫時名稱進入專案，所以先用 `rfa_save_as` 取好檔名。
+- `targetProject`：只開一個專案時可省略；開了多個時必須指定（標題或完整路徑），工具不會替你挑。
+- 專案內已有同名族群時一律重新載入。`overwriteParameterValues` 預設 false，保留專案中已調整的類型參數值；**設為 true 會覆蓋專案中的值，執行前先向使用者確認**。
+- 預設不切換視窗，族群編輯器仍是作用中文件，可以繼續修改後再載入一次。`activateProject: true` 會在載入後切到專案；切換失敗只會出現在 warnings，族群仍已載入。
+- 載入後回傳專案內的族群 id 與各類型 id，後續放置實例請用這些 id，不要沿用族群檔內的 id。
+
 ---
 
 ## 6. 對齊與尺寸（Constraints）
@@ -254,6 +266,8 @@ metadata:
 | 族群類別沒有子類別「X」 | `subcategory` 名稱不在此族群類別下 | 改用錯誤訊息列出的名稱，或省略 |
 | 找不到名為「X」的族群樣板 | `templateName` 與實際檔名不符（語言版本不同） | 從錯誤訊息列出的可用樣板中選，或改傳 `templatePath` |
 | OpenAndActivateDocument 失敗 | Revit 不允許在目前狀態切換文件 | 請使用者在 Revit 手動開啟訊息中的路徑 |
+| Revit 目前開啟了 N 個專案 | `rfa_load_into_project` 未指定目標 | 以 `targetProject` 指定錯誤訊息列出的其中一個 |
+| 沒有開啟任何專案可以載入族群 | 目標 .rvt 未開啟 | 請使用者先在 Revit 開啟專案 |
 | 檔案已存在 | `rfa_save_as`、`rfa_new_family` 預設不覆蓋 | 換檔名，或經使用者確認後傳 `overwrite: true` |
 
 ---

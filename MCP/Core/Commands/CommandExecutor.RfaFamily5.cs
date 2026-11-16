@@ -15,7 +15,11 @@ using IdType = System.Int32;
 namespace RevitMCP.Core
 {
     /// <summary>
-    /// RFA 族群編輯工具第五批：開新族群（rfa_new_family）與開啟族群（rfa_open_family）。
+    /// RFA 族群編輯工具第五批：開新族群（rfa_new_family）、開啟族群（rfa_open_family）
+    /// 與載入至專案（rfa_load_into_project）。
+    ///
+    /// rfa_load_into_project 以 Document.LoadFamily(Document, IFamilyLoadOptions) 把作用中族群載入同一工作階段中
+    /// 已開啟的專案；預設不切換作用中文件，族群編輯器仍是作用中文件，可繼續修改後再載入。
     ///
     /// 其他 rfa_* 工具都作用在 _uiApp.ActiveUIDocument，所以這兩支的目標是讓族群文件「成為作用中文件」。
     /// NewFamilyDocument 回傳的是只在記憶體中的文件，無法直接在 UI 啟用；因此流程是
@@ -273,6 +277,201 @@ namespace RevitMCP.Core
                 ? "族群原本就已開啟，已切換為 Revit 的作用中文件，可以直接接著使用其他 rfa_* 工具。"
                 : "族群已開啟並成為 Revit 的作用中文件，可以直接接著使用其他 rfa_* 工具。";
             return summary;
+        }
+
+        #endregion
+
+        #region rfa_load_into_project
+
+        /// <summary>
+        /// rfa_load_into_project 的載入選項：族群已存在於專案時一律重新載入，
+        /// 是否覆蓋既有類型參數值由呼叫端的 overwriteParameterValues 決定。
+        /// 共用巢狀族群一律採用族群檔內的版本（FamilySource.Family）。
+        /// </summary>
+        private class RfaLoadIntoProjectOptions : IFamilyLoadOptions
+        {
+            private readonly bool _overwrite;
+            public RfaLoadIntoProjectOptions(bool overwrite) { _overwrite = overwrite; }
+
+            public bool OnFamilyFound(bool familyInUse, out bool overwriteParameterValues)
+            {
+                overwriteParameterValues = _overwrite;
+                return true;
+            }
+
+            public bool OnSharedFamilyFound(Family sharedFamily, bool familyInUse, out FamilySource source, out bool overwriteParameterValues)
+            {
+                source = FamilySource.Family;
+                overwriteParameterValues = _overwrite;
+                return true;
+            }
+        }
+
+        /// <summary>可作為載入目標的已開啟專案文件：非族群檔、非連結文件</summary>
+        private List<Document> RfaListOpenProjects()
+        {
+            var list = new List<Document>();
+            foreach (Document d in _uiApp.Application.Documents)
+            {
+                if (d.IsFamilyDocument) continue;
+                bool linked = false;
+                try { linked = d.IsLinked; } catch { }
+                if (linked) continue;
+                list.Add(d);
+            }
+            return list;
+        }
+
+        /// <summary>文件標題去掉指定副檔名（不分大小寫）</summary>
+        private static string RfaStripExtension(string title, string ext)
+        {
+            if (string.IsNullOrEmpty(title)) return title;
+            return title.EndsWith(ext, StringComparison.OrdinalIgnoreCase) ? title.Substring(0, title.Length - ext.Length) : title;
+        }
+
+        /// <summary>
+        /// 將作用中的族群文件載入到同一個 Revit 工作階段中已開啟的專案（等同族群編輯器的「載入至專案」）。
+        /// 參數：
+        ///   targetProject (string, optional): 專案標題（有無 .rvt 皆可）或完整路徑；省略時只有一個候選專案才自動選用
+        ///   overwriteParameterValues (bool, 預設 false): 族群已存在時，是否以族群檔的類型參數值覆蓋專案中的值
+        ///   activateProject (bool, 預設 false): 載入成功後切換到目標專案；失敗只記入 warnings，不讓工具失敗
+        /// </summary>
+        private object RfaLoadIntoProject(JObject parameters)
+        {
+            Document familyDoc = GetActiveFamilyDocument();
+
+            string target = parameters["targetProject"]?.Value<string>()?.Trim();
+            bool overwrite = parameters["overwriteParameterValues"]?.Value<bool>() ?? false;
+            bool activate = parameters["activateProject"]?.Value<bool>() ?? false;
+            var warnings = new List<string>();
+
+            // ---- 解析目標專案 ----
+            List<Document> candidates = RfaListOpenProjects();
+            string candidateList = candidates.Count == 0
+                ? "（目前沒有開啟任何專案）"
+                : string.Join(", ", candidates.Select(d => $"「{d.Title}」"));
+
+            Document project;
+            if (string.IsNullOrEmpty(target))
+            {
+                if (candidates.Count == 0)
+                    throw new Exception("Revit 目前沒有開啟任何專案（.rvt）可以載入族群。請先在 Revit 開啟目標專案，再執行 rfa_load_into_project。");
+                if (candidates.Count > 1)
+                    throw new Exception($"Revit 目前開啟了 {candidates.Count} 個專案，請以 targetProject 指定其中一個（標題或完整路徑）: {candidateList}");
+                project = candidates[0];
+            }
+            else
+            {
+                string targetNoExt = RfaStripExtension(target, ".rvt");
+                var matches = candidates.Where(d =>
+                {
+                    string title = d.Title ?? "";
+                    string path = null;
+                    try { path = d.PathName; } catch { }
+                    return string.Equals(title, target, StringComparison.OrdinalIgnoreCase)
+                        || string.Equals(RfaStripExtension(title, ".rvt"), targetNoExt, StringComparison.OrdinalIgnoreCase)
+                        || (!string.IsNullOrEmpty(path) && (string.Equals(path, target, StringComparison.OrdinalIgnoreCase) || (Path.IsPathRooted(target) && RfaSamePath(path, target))));
+                }).ToList();
+                if (matches.Count == 0)
+                    throw new Exception($"找不到已開啟的專案「{target}」。可選的專案: {candidateList}");
+                if (matches.Count > 1)
+                    throw new Exception($"有 {matches.Count} 個已開啟的專案符合「{target}」，請改用完整路徑指定: {string.Join(" | ", matches.Select(d => string.IsNullOrEmpty(d.PathName) ? d.Title : d.PathName))}");
+                project = matches[0];
+            }
+
+            if (project.IsReadOnly)
+                throw new Exception($"目標專案「{project.Title}」是唯讀狀態，無法載入族群。");
+            if (project.IsModifiable)
+                throw new Exception($"目標專案「{project.Title}」有尚未結束的交易，無法載入族群。請先在 Revit 中完成或取消該專案中的編輯。");
+            if (familyDoc.IsModifiable)
+                throw new Exception($"族群文件「{familyDoc.Title}」有尚未結束的交易，無法載入。請先在 Revit 中完成或取消目前的編輯。");
+
+            // ---- 載入前快照 ----
+            string expectedName = RfaStripExtension(familyDoc.Title, ".rfa");
+            var familiesBefore = new FilteredElementCollector(project).OfClass(typeof(Family)).Cast<Family>().ToList();
+            var idsBefore = new HashSet<IdType>(familiesBefore.Select(f => f.Id.GetIdValue()));
+            bool sameNameExisted = familiesBefore.Any(f => string.Equals(f.Name, expectedName, StringComparison.OrdinalIgnoreCase));
+
+            if (string.IsNullOrEmpty(familyDoc.PathName))
+                warnings.Add($"族群文件尚未存檔，專案會以目前的標題「{expectedName}」作為族群名稱。若要給它正式名稱，請先用 rfa_save_as 存檔再載入。");
+
+            // ---- 載入 ----
+            Family loaded;
+            try
+            {
+                loaded = familyDoc.LoadFamily(project, new RfaLoadIntoProjectOptions(overwrite));
+            }
+            catch (Exception ex)
+            {
+                string cause = ex is Autodesk.Revit.Exceptions.InvalidOperationException
+                    ? "最可能的原因：目標專案或族群文件正在交易中、族群文件尚未存檔，或族群類別不允許載入到該專案。"
+                    : ex is Autodesk.Revit.Exceptions.ArgumentException
+                        ? "最可能的原因：目標文件不是可載入族群的專案（例如唯讀、連結文件或另一個族群檔）。"
+                        : "最可能的原因：目標專案正在交易中或為唯讀，或族群文件尚未存檔。";
+                throw new Exception($"將族群「{familyDoc.Title}」載入專案「{project.Title}」失敗（{ex.GetType().Name}: {ex.Message}）。{cause}");
+            }
+            if (loaded == null)
+                throw new Exception($"LoadFamily 沒有回傳族群（族群「{familyDoc.Title}」→ 專案「{project.Title}」）。可能是 IFamilyLoadOptions 拒絕了重新載入，或 Revit 判定無需載入。");
+
+            bool wasReload = idsBefore.Contains(loaded.Id.GetIdValue());
+            if (!string.Equals(loaded.Name, expectedName, StringComparison.Ordinal))
+                warnings.Add($"專案中的族群名稱「{loaded.Name}」與由族群文件標題推得的名稱「{expectedName}」不同。");
+            if (wasReload != sameNameExisted)
+                warnings.Add($"載入前同名族群檢查（{sameNameExisted}）與實際是否為重新載入（{wasReload}）不一致；以 wasReload 為準。");
+
+            var types = loaded.GetFamilySymbolIds()
+                .Select(id => project.GetElement(id))
+                .Where(e => e != null)
+                .Select(e => new { name = e.Name, id = e.Id.GetIdValue() })
+                .OrderBy(t => t.name, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            // ---- 切換到專案（選用） ----
+            bool activated = false;
+            if (activate)
+            {
+                string projPath = null;
+                try { projPath = project.PathName; } catch { }
+                if (string.IsNullOrEmpty(projPath))
+                {
+                    warnings.Add($"專案「{project.Title}」從未存檔（沒有檔案路徑），無法以 OpenAndActivateDocument 切換過去；族群已載入，請在 Revit 中手動切換到該專案視窗。");
+                }
+                else
+                {
+                    try
+                    {
+                        _uiApp.OpenAndActivateDocument(projPath);
+                        activated = true;
+                    }
+                    catch (Exception ex)
+                    {
+                        warnings.Add($"族群已載入，但切換到專案「{project.Title}」失敗（{ex.GetType().Name}: {ex.Message}）。請在 Revit 中手動切換。");
+                    }
+                }
+            }
+
+            string activeTitle = null;
+            try { activeTitle = _uiApp.ActiveUIDocument?.Document?.Title; } catch { }
+
+            return new Dictionary<string, object>
+            {
+                ["family"] = loaded.Name,
+                ["familyId"] = loaded.Id.GetIdValue(),
+                ["expectedFamilyName"] = expectedName,
+                ["targetProject"] = project.Title,
+                ["targetPath"] = string.IsNullOrEmpty(project.PathName) ? null : project.PathName,
+                ["wasReload"] = wasReload,
+                ["overwriteParameterValues"] = overwrite,
+                ["category"] = loaded.FamilyCategory?.Name,
+                ["typeCount"] = types.Count,
+                ["types"] = types,
+                ["activated"] = activated,
+                ["activeDocument"] = activeTitle,
+                ["warnings"] = warnings,
+                ["note"] = activated
+                    ? $"族群已載入專案「{project.Title}」，並已切換為作用中文件；要繼續編輯族群請用 rfa_open_family 切回族群檔。"
+                    : $"族群已載入專案「{project.Title}」。族群編輯器仍是作用中文件，可繼續用 rfa_* 工具修改後再次載入。",
+            };
         }
 
         #endregion

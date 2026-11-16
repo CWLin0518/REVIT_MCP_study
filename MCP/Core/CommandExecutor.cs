@@ -833,6 +833,9 @@ namespace RevitMCP.Core
                     case "rfa_open_family":
                         result = RfaOpenFamily(parameters);
                         break;
+                    case "rfa_load_into_project":
+                        result = RfaLoadIntoProject(parameters);
+                        break;
 
                     default:
                         throw new NotImplementedException($"未實作的命令: {request.CommandName}");

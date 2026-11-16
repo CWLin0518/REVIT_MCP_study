@@ -4,7 +4,8 @@ import { Tool } from "@modelcontextprotocol/sdk/types.js";
  * RFA family-editor tools (rfa_*). They operate on the ACTIVE family document:
  * rfa_new_family (from a .rft template) or rfa_open_family (existing .rfa) makes a family
  * the active document — or the user opens one in Revit by hand — then the other tools
- * add reference planes, extrusions, parameters and types inside it.
+ * add reference planes, extrusions, parameters and types inside it, and
+ * rfa_load_into_project loads the finished family into an open project.
  * C# handlers: MCP/Core/Commands/CommandExecutor.RfaFamily*.cs.
  * Units: length mm, angle degrees, area m², volume m³.
  */
@@ -419,6 +420,31 @@ export const rfaFamilyTools: Tool[] = [
                 filePath: { type: "string", description: "Absolute path of the .rfa to open." },
             },
             required: ["filePath"],
+        },
+    },
+    {
+        name: "rfa_load_into_project",
+        description:
+            "Load the active family into an open project. Equivalent to the family editor's Load into Project: the active family document is loaded into a project (.rvt) already open in the same Revit session. " +
+            "targetProject matches a project title (with or without \".rvt\") or full path; when omitted, the only open project is used and the error lists the candidates if there are none or several. " +
+            "If the family already exists in the project it is reloaded (wasReload: true); overwriteParameterValues decides whether existing type parameter values are replaced. " +
+            "Returns the family name and id in the project, its types and category. The family editor stays the active document unless activateProject is true. " +
+            "A family that was never saved loads under its temporary title (e.g. \"Family1\"); use rfa_save_as first to give it a proper name.",
+        inputSchema: {
+            type: "object",
+            properties: {
+                targetProject: { type: "string", description: "Title (with or without \".rvt\") or full path of an open project document. Optional when exactly one project is open." },
+                overwriteParameterValues: {
+                    type: "boolean",
+                    description: "When the family already exists in the project, overwrite its existing type parameter values with the family's. Default false.",
+                    default: false,
+                },
+                activateProject: {
+                    type: "boolean",
+                    description: "After loading, switch Revit's active document to the target project. A failed switch is reported in warnings, not as an error. Default false.",
+                    default: false,
+                },
+            },
         },
     },
 ];
