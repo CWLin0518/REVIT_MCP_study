@@ -45,7 +45,7 @@ export const rfaFamilyTools: Tool[] = [
     {
         name: "rfa_get_document_info",
         description:
-            "Read the active family (.rfa) document. Returns category, placement type, types, family parameters with current values, reference planes, levels, views and existing solid/void forms. " +
+            "Read the active family (.rfa) document. Returns category, placement type, types, family parameters with current values, reference planes, levels, views, existing solid/void forms and the materials available in the family document (id + name; forms and material parameters can only reference these). " +
             "Call this first before the other editing rfa_* tools; it fails if the active document is a project instead of a family (use rfa_new_family or rfa_open_family to make a family active).",
         inputSchema: { type: "object", properties: {} },
     },
@@ -96,7 +96,7 @@ export const rfaFamilyTools: Tool[] = [
                 startOffsetMm: { type: "number", description: "Extrusion start along the normal, mm. Default 0." },
                 endOffsetMm: { type: "number", description: "Extrusion end along the normal, mm. Negative values extrude the other way." },
                 isSolid: { type: "boolean", description: "true = solid (default), false = void.", default: true },
-                material: { type: "string", description: "Material name that already exists in the family document (solid only)." },
+                material: { type: "string", description: "Material name that already exists in the family document (solid only). Create it first with rfa_create_material if missing." },
                 associate: {
                     type: "object",
                     description: "Bind extrusion properties to family parameters, e.g. {\"extrusionEnd\": \"Height\", \"material\": \"Body Material\"}. Keys: extrusionEnd, extrusionStart (length params), material (material param), visible (yes/no param).",
@@ -247,7 +247,7 @@ export const rfaFamilyTools: Tool[] = [
                 },
                 profiles: { type: "array", items: profileLoopSchema, description: "Cross-section loops in [u, v] mm; extra loops inside the first become holes." },
                 isSolid: { type: "boolean", description: "true = solid (default), false = void.", default: true },
-                material: { type: "string", description: "Material name that already exists in the family document (solid only)." },
+                material: { type: "string", description: "Material name that already exists in the family document (solid only). Create it first with rfa_create_material if missing." },
                 associate: {
                     type: "object",
                     description: "Bind properties to family parameters. Keys: material (material param), visible (yes/no param).",
@@ -271,7 +271,7 @@ export const rfaFamilyTools: Tool[] = [
                 planeOffsetMm: { type: "number", description: "Offset of the sketch plane along its normal axis, mm. Default 0." },
                 referencePlane: { type: "string", description: "Sketch the base on this named reference plane instead." },
                 isSolid: { type: "boolean", description: "true = solid (default), false = void.", default: true },
-                material: { type: "string", description: "Material name that already exists in the family document (solid only)." },
+                material: { type: "string", description: "Material name that already exists in the family document (solid only). Create it first with rfa_create_material if missing." },
                 associate: {
                     type: "object",
                     description: "Bind properties to family parameters. Keys: blendTop, blendBase (length params), material, visible.",
@@ -476,7 +476,7 @@ export const rfaFamilyTools: Tool[] = [
                 startAngleDeg: { type: "number", description: "Start angle in degrees. Default 0.", default: 0 },
                 endAngleDeg: { type: "number", description: "End angle in degrees. Default 360.", default: 360 },
                 isSolid: { type: "boolean", description: "true = solid (default), false = void.", default: true },
-                material: { type: "string", description: "Material name that already exists in the family document (solid only)." },
+                material: { type: "string", description: "Material name that already exists in the family document (solid only). Create it first with rfa_create_material if missing." },
                 associate: {
                     type: "object",
                     description: "Bind revolution properties to family parameters, e.g. {\"endAngle\": \"Sweep Angle\", \"material\": \"Body Material\"}. Keys: startAngle, endAngle (angle params), material (material param), visible (yes/no param).",
@@ -513,7 +513,7 @@ export const rfaFamilyTools: Tool[] = [
                 startProfile: { ...profileLoopSchema, description: "Closed loop at the path start, [u, v] mm around the origin." },
                 endProfile: { ...profileLoopSchema, description: "Closed loop at the path end, [u, v] mm around the origin." },
                 isSolid: { type: "boolean", description: "true = solid (default), false = void.", default: true },
-                material: { type: "string", description: "Material name that already exists in the family document (solid only)." },
+                material: { type: "string", description: "Material name that already exists in the family document (solid only). Create it first with rfa_create_material if missing." },
                 associate: {
                     type: "object",
                     description: "Bind properties to family parameters. Keys: material (material param), visible (yes/no param).",
@@ -521,6 +521,42 @@ export const rfaFamilyTools: Tool[] = [
                 },
             },
             required: ["startProfile", "endProfile"],
+        },
+    },
+    {
+        name: "rfa_create_material",
+        description:
+            "Create materials in the active family document. Forms and material parameters can only reference materials that already exist in the family file; this adds them. " +
+            "Each item creates a blank material or duplicates an existing one (duplicateFrom), then applies the shading color [r, g, b] 0-255, transparency 0-100 and materialClass. " +
+            "Existing names are skipped, or updated in place with updateExisting: true. " +
+            "Returns created / updated / skipped / errors (values read back from Revit) and the sorted list of every material now in the family document.",
+        inputSchema: {
+            type: "object",
+            properties: {
+                materials: {
+                    type: "array",
+                    items: {
+                        type: "object",
+                        properties: {
+                            name: { type: "string", description: "Material name." },
+                            color: {
+                                type: "array",
+                                items: { type: "integer", minimum: 0, maximum: 255 },
+                                minItems: 3,
+                                maxItems: 3,
+                                description: "Shading color [r, g, b], each 0-255.",
+                            },
+                            transparency: { type: "integer", minimum: 0, maximum: 100, description: "Shading transparency 0-100." },
+                            materialClass: { type: "string", description: "Material class, e.g. \"Metal\", \"Glass\", \"Wood\"." },
+                            duplicateFrom: { type: "string", description: "Name of an existing material in the family document to duplicate instead of creating a blank one; the other fields are applied on top." },
+                            updateExisting: { type: "boolean", description: "When a material with this name already exists: false (default) = skip it; true = apply color/transparency/materialClass to it.", default: false },
+                        },
+                        required: ["name"],
+                    },
+                    description: "Materials to create.",
+                },
+            },
+            required: ["materials"],
         },
     },
 ];

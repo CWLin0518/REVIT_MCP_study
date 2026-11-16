@@ -243,6 +243,11 @@ namespace RevitMCP.Core
             var forms = new FilteredElementCollector(doc).OfClass(typeof(GenericForm)).Cast<GenericForm>()
                 .Select(f => new { id = f.Id.GetIdValue(), kind = f.GetType().Name, isSolid = f.IsSolid, name = f.Name }).ToList();
 
+            // 族群內可被形體／材質參數引用的材質（只能引用已存在於族群檔的材質）
+            var materials = new FilteredElementCollector(doc).OfClass(typeof(Material)).Cast<Material>()
+                .OrderBy(m => m.Name, StringComparer.OrdinalIgnoreCase)
+                .Select(m => new { id = m.Id.GetIdValue(), name = m.Name }).ToList();
+
             return new
             {
                 title = doc.Title,
@@ -256,6 +261,7 @@ namespace RevitMCP.Core
                 levels,
                 views,
                 forms,
+                materials,
                 units = "長度 mm、角度 度、面積 m²、體積 m³",
             };
         }

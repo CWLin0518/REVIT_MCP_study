@@ -844,6 +844,10 @@ namespace RevitMCP.Core
                         result = RfaCreateSweptBlend(parameters);
                         break;
 
+                    case "rfa_create_material":
+                        result = RfaCreateMaterial(parameters);
+                        break;
+
                     default:
                         throw new NotImplementedException($"未實作的命令: {request.CommandName}");
                 }

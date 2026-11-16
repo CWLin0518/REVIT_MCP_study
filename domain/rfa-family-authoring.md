@@ -2,7 +2,7 @@
 name: rfa-family-authoring
 description: "用 rfa_* 工具在族群編輯器中建立參數化族群的 SOP：前置條件、建立順序（類型→參數→參考平面→尺寸標籤→形體→對齊鎖定→撓曲測試）、四種形體（擠出/融合/掃掠/參考線掃掠）的座標約定、參數化管件配方，以及實測確認行不通的路線。觸發：族群建模、RFA 建模、參數化族群、族群編輯器、rfa_create_extrusion、參考線掃掠、Rhino 轉族群。"
 metadata:
-  version: "1.5"
+  version: "1.6"
   updated: "2026-11-16"
   created: "2026-11-10"
   references:
@@ -18,7 +18,7 @@ metadata:
 
 # RFA 族群建模工作流程（rfa_* Family Authoring）
 
-`rfa_*` 系列共 17 支工具，作用對象是 **Revit 目前作用中的族群文件（.rfa）**。用途是讓 AI 在族群編輯器裡建立參考平面、參數、類型與形體，並把形體綁到參數上，做出可撓曲（flex）的參數化族群。
+`rfa_*` 系列共 18 支工具，作用對象是 **Revit 目前作用中的族群文件（.rfa）**。用途是讓 AI 在族群編輯器裡建立參考平面、參數、類型與形體，並把形體綁到參數上，做出可撓曲（flex）的參數化族群。
 
 本文件定義「怎麼用、照什麼順序用、哪些路線已確認走不通」。工具的完整參數以 `MCP-Server/src/tools/rfa-family-tools.ts` 為準。
 
@@ -30,9 +30,9 @@ metadata:
 |---|---|
 | 作用中文件必須是族群檔 | 用 `rfa_new_family`（樣板新建）或 `rfa_open_family`（開啟既有 .rfa）取得，也可由使用者在 Revit 手動開啟。作用中文件是專案檔時，其餘 `rfa_*` 工具都會直接拒絕 |
 | 載入專案需要專案已開啟 | `rfa_load_into_project` 只能載入到同一個 Revit 工作階段中**已開啟**的專案，工具不會替使用者開啟 .rvt。存檔可用 `rfa_save_as` |
-| 材質要先存在於族群檔 | `material` 參數只能填族群檔內已有的材質名稱，工具不會從專案或材質庫帶入 |
+| 材質要先存在於族群檔 | `material` 參數只能填族群檔內已有的材質名稱，工具不會從專案或材質庫帶入。缺的材質用 `rfa_create_material` 建立；現有材質可從 `rfa_get_document_info` 的 `materials` 查到 |
 | 單位 | 長度 mm、角度 度、面積 m²、體積 m³、是/否 用 true/false、材質用名稱 |
-| 實機驗證範圍 | 2026-11 只在 **Revit 2027** 實測通過；R22–R26 可編譯但未實測。`rfa_new_family`、`rfa_open_family`、`rfa_load_into_project`、`rfa_create_revolution`、`rfa_create_swept_blend` 於 2026-11-16 新增，**尚未實機驗證** |
+| 實機驗證範圍 | 2026-11 只在 **Revit 2027** 實測通過；R22–R26 可編譯但未實測。`rfa_new_family`、`rfa_open_family`、`rfa_load_into_project`、`rfa_create_revolution`、`rfa_create_swept_blend`、`rfa_create_material` 於 2026-11-16 新增，**尚未實機驗證** |
 
 ---
 
@@ -42,9 +42,10 @@ metadata:
 |---|---|---|
 | `rfa_new_family` | 以族群樣板（.rft）建立新族群、存檔並設為作用中文件 | |
 | `rfa_open_family` | 開啟既有 .rfa 並設為作用中文件；已開啟則切換過去 | |
-| `rfa_get_document_info` | 讀族群類別、放置型式、類型、參數現值、參考平面、樓層、視圖、既有形體 | ✅ |
+| `rfa_get_document_info` | 讀族群類別、放置型式、類型、參數現值、參考平面、樓層、視圖、既有形體、材質 | ✅ |
 | `rfa_set_family_type` | 建立或更新類型，設值／公式，可改名；被操作的類型會成為目前類型 | |
 | `rfa_add_parameter` | 新增族群參數（9 種資料型別，可帶公式或初值） | |
+| `rfa_create_material` | 在族群檔內建立材質（顏色、透明度、類別，或複製既有材質） | |
 | `rfa_create_reference_plane` | 建立具名參考平面（簡式 normal + offsetMm，或進階式三向量） | |
 | `rfa_create_dimension` | 在平行參考平面之間標尺寸；兩平面可掛長度參數標籤，三個以上可設 EQ | |
 | `rfa_create_extrusion` | 擠出（實體／空心），可多迴圈開孔 | |
@@ -70,7 +71,8 @@ metadata:
 0. rfa_new_family / rfa_open_family   沒有作用中的族群檔時，先建立或開啟
 1. rfa_get_document_info         先讀現況，確認是族群檔、有沒有類型
 2. rfa_set_family_type           樣板常常是 0 個類型 → 先建一個類型
-3. rfa_add_parameter             建參數（長度、材質、可見性……）
+3. rfa_create_material           形體或材質參數要用的材質，族群檔內沒有就先建
+   rfa_add_parameter             建參數（長度、材質、可見性……）
 4. rfa_create_reference_plane    建骨架平面（Left/Right/Front/Back/Top…）
 5. rfa_create_dimension          兩平面＋label 綁參數；三平面＋equalize 設 EQ
 6. rfa_create_extrusion / blend / revolution / sweep / swept_blend   形體畫在「剛好落在平面上」的位置
@@ -240,6 +242,17 @@ metadata:
 - **建立後務必核對回傳值**：`startProfileCurves` / `endProfileCurves` 是 Revit 實際放在兩端的斷面組成（例如「4 Line」「2 Arc」），`profilesSwapped` 表示工具是否對調重建過，`boundingBoxMm` 可確認哪一端較寬。
 - **尚未實機驗證的項目**：工具用幾何位置判斷哪個斷面落在路徑起點，這個判斷假設 Revit 讀回的斷面是模型座標。若 warnings 出現「無法判斷兩端」，以 `boundingBoxMm` 為準人工確認；兩端相反時，把 `startProfile` 與 `endProfile` 對調重建。
 
+### 5.11 材質（Material）
+
+`rfa_create_material` 在族群檔內建立材質，讓形體的 `material` 與材質型別的族群參數有東西可以引用。
+
+- 先用 `rfa_get_document_info` 的 `materials` 看族群檔內已有哪些，沒有才建。
+- 每個材質可設 `color`（[r, g, b]，0–255，著色顏色）、`transparency`（0–100）、`materialClass`。
+- `duplicateFrom`：複製族群檔內既有材質再套用上述設定。
+- 同名材質預設跳過（名稱比對不分大小寫）；`updateExisting: true` 才會修改既有材質，**修改前先向使用者確認**。
+- 這支工具只設定「圖形」頁籤的著色顏色與透明度，**不建立外觀資產（彩現貼圖）**。需要彩現外觀時，由使用者在 Revit 材質瀏覽器設定，或在專案端以綠建材／材質工具處理。
+- 載入專案時，專案內若已有同名材質，Revit 會沿用專案的材質定義；族群檔內設定的顏色不一定會出現在專案中。
+
 ---
 
 ## 6. 對齊與尺寸（Constraints）
@@ -280,7 +293,7 @@ metadata:
 |---|---|---|
 | 作用中的文件是專案檔 | 目前視窗不是 .rfa | 請使用者切換到族群編輯器視窗 |
 | 族群目前沒有任何類型，未寫入 value | 樣板沒有類型 | 先 `rfa_set_family_type` 建類型，再補值 |
-| 找不到材質 | 材質不在族群檔中 | 請使用者先在族群檔建立或傳遞材質；或省略 material |
+| 找不到材質 | 材質不在族群檔中 | 先用 `rfa_create_material` 建立；或省略 material |
 | 綁定失敗（兩邊型別需相同） | 例如把長度屬性綁到數字參數 | 參數型別改成相符的型別 |
 | 建立擠出失敗 | 輪廓不封閉、自我交錯，或樣板不支援（概念量體／自適應族群） | 檢查輪廓；換一般族群樣板 |
 | 輪廓跨越旋轉軸 | `rfa_create_revolution` 的輪廓有一部分在軸線另一側 | 把輪廓整個移到軸線同一側（可貼軸） |
