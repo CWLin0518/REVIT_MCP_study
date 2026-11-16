@@ -46,7 +46,8 @@ export const rfaFamilyTools: Tool[] = [
         name: "rfa_get_document_info",
         description:
             "Read the active family (.rfa) document. Returns category, placement type, types, family parameters with current values, reference planes, levels, views, existing solid/void forms (each with its subcategory name or null and its visibility settings: coarse, medium, fine, planRcp, frontBack, leftRight, whenCutInPlanRcp, or null when the form has none), the subcategories of the family category (id + name), the materials available in the family document (id + name; forms and material parameters can only reference these) " +
-            "and nestedFamilies: every editable, non-in-place family loaded into this family document with id, name, category, type names and instanceCount (use rfa_place_nested_family to load and place more). " +
+            "and nestedFamilies: every editable, non-in-place family loaded into this family document with id, name, category, type names and instanceCount (use rfa_place_nested_family to load and place more), " +
+            "and connectors: every MEP connector in the family with id, domain (pipe, duct, electrical, conduit, cableTray — conduit vs cable tray is inferred from the shape), systemType, shape, originMm, directionVector, flowDirection, isPrimary and diameterMm or widthMm/heightMm; a field that cannot be read is null (use rfa_create_connector to add more). " +
             "Call this first before the other editing rfa_* tools; it fails if the active document is a project instead of a family (use rfa_new_family or rfa_open_family to make a family active).",
         inputSchema: { type: "object", properties: {} },
     },
@@ -788,6 +789,78 @@ export const rfaFamilyTools: Tool[] = [
                 },
             },
             required: ["names"],
+        },
+    },
+    {
+        name: "rfa_create_connector",
+        description:
+            "Create MEP connectors on family forms. Each item places one pipe, duct, electrical, conduit or cable tray connector at the center of a planar face of an existing form (extrusion, blend, sweep, revolution, swept blend) in the active family document, so the family can connect to pipes, ducts or circuits in a project. " +
+            "The face is chosen by faceNormal (its outward direction, matched within about 1 degree); when several faces share that normal, facePointMm picks the one whose plane is closest to the point (without it the outermost face is used) and a warning reports the choice. " +
+            "If no planar face matches, the item's error lists the normals and origins (mm) of the form's planar faces so you can retry. " +
+            "systemType is a member name of PipeSystemType (default Global), DuctSystemType (default Global) or ElectricalSystemType (default PowerBalanced), case-insensitive; an invalid name lists the valid ones. It does not apply to conduit and cable tray. " +
+            "shape (duct only) is round (default), rectangular or oval. Size: diameterMm for round connectors (pipe, conduit, round duct); widthMm + heightMm for rectangular/oval duct and cable tray. " +
+            "associate binds connector size parameters to existing length family parameters: keys diameter, radius, width, height (a connector may expose only one of diameter/radius; the warning says which). " +
+            "flowDirection (in, out, bidirectional) is applied to pipe and duct connectors; for other domains it is ignored with a warning. " +
+            "Each item runs in its own sub-transaction, so a failing item (e.g. a connector domain the family category does not accept; Revit's message and the category are reported) rolls back alone. " +
+            "Returns createdCount, created (index, id, domain, systemType used, systemClassification read back, shape, hostElementId, faceNormal, faceOriginMm, directionVector, originMm, diameterMm or widthMm/heightMm read back, sizeParametersSet, associated, flowDirection), errors (index, error), warnings and familyCategory. " +
+            "Use rfa_get_document_info to find form ids and list existing connectors.",
+        inputSchema: {
+            type: "object",
+            properties: {
+                connectors: {
+                    type: "array",
+                    description: "Connectors to create.",
+                    items: {
+                        type: "object",
+                        properties: {
+                            elementId: { type: "integer", description: "Element id of the form whose face hosts the connector (see forms in rfa_get_document_info)." },
+                            faceNormal: {
+                                type: "array",
+                                items: { type: "number" },
+                                minItems: 3,
+                                maxItems: 3,
+                                description: "Outward direction [x, y, z] of the planar face to use, e.g. [0, 0, 1] for the top face.",
+                            },
+                            facePointMm: {
+                                type: "array",
+                                items: { type: "number" },
+                                minItems: 3,
+                                maxItems: 3,
+                                description: "Optional [x, y, z] in mm. When several faces share faceNormal, the face whose plane is closest to this point is used.",
+                            },
+                            domain: {
+                                type: "string",
+                                enum: ["pipe", "duct", "electrical", "conduit", "cableTray"],
+                                description: "Connector domain.",
+                            },
+                            systemType: {
+                                type: "string",
+                                description: "Member name of PipeSystemType (e.g. SupplyHydronic, DomesticColdWater, Sanitary, Global), DuctSystemType (e.g. SupplyAir, ReturnAir, ExhaustAir, Global) or ElectricalSystemType (e.g. PowerBalanced, PowerUnBalanced, Data, FireAlarm). Not for conduit / cable tray.",
+                            },
+                            shape: {
+                                type: "string",
+                                enum: ["round", "rectangular", "oval"],
+                                description: "Duct only. Default round.",
+                            },
+                            diameterMm: { type: "number", description: "Diameter in mm for round connectors (pipe, conduit, round duct)." },
+                            widthMm: { type: "number", description: "Width in mm for rectangular/oval duct and cable tray." },
+                            heightMm: { type: "number", description: "Height in mm for rectangular/oval duct and cable tray." },
+                            associate: {
+                                type: "object",
+                                description: "Connector size parameter -> family parameter name, e.g. {\"diameter\": \"Inlet Diameter\"}. Keys: diameter, radius, width, height. The family parameter must already exist as a length parameter (rfa_add_parameter). Problems are reported in warnings naming both sides.",
+                                additionalProperties: { type: "string" },
+                            },
+                            flowDirection: {
+                                type: "string",
+                                enum: ["in", "out", "bidirectional"],
+                                description: "Flow direction (pipe and duct only).",
+                            },
+                        },
+                        required: ["elementId", "faceNormal", "domain"],
+                    },
+                },
+            },
+            required: ["connectors"],
         },
     },
 ];

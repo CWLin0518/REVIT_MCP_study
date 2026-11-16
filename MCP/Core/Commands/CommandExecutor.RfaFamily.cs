@@ -279,6 +279,14 @@ namespace RevitMCP.Core
                     instanceCount = instanceCounts.TryGetValue(f.Id.GetIdValue(), out int c) ? c : 0,
                 }).ToList();
 
+            // MEP 接頭（rfa_create_connector 建立的或樣板內建的）；各欄位讀不到時為 null（CommandExecutor.RfaFamily11.cs）
+            var connectors = new FilteredElementCollector(doc).OfClass(typeof(ConnectorElement)).Cast<ConnectorElement>()
+                .Select(ce =>
+                {
+                    try { return (object)RfaDescribeConnector(ce); }
+                    catch { return new { id = ce.Id.GetIdValue() }; }
+                }).ToList();
+
             return new
             {
                 title = doc.Title,
@@ -295,6 +303,7 @@ namespace RevitMCP.Core
                 subcategories,
                 materials,
                 nestedFamilies,
+                connectors,
                 units = "長度 mm、角度 度、面積 m²、體積 m³",
             };
         }

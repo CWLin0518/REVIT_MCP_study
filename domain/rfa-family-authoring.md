@@ -2,7 +2,7 @@
 name: rfa-family-authoring
 description: "用 rfa_* 工具在族群編輯器中建立參數化族群的 SOP：前置條件、建立順序（類型→參數→參考平面→尺寸標籤→形體→對齊鎖定→撓曲測試）、四種形體（擠出/融合/掃掠/參考線掃掠）的座標約定、參數化管件配方，以及實測確認行不通的路線。觸發：族群建模、RFA 建模、參數化族群、族群編輯器、rfa_create_extrusion、參考線掃掠、Rhino 轉族群。"
 metadata:
-  version: "1.10"
+  version: "1.11"
   updated: "2026-11-16"
   created: "2026-11-10"
   references:
@@ -18,7 +18,7 @@ metadata:
 
 # RFA 族群建模工作流程（rfa_* Family Authoring）
 
-`rfa_*` 系列共 22 支工具，作用對象是 **Revit 目前作用中的族群文件（.rfa）**。用途是讓 AI 在族群編輯器裡建立參考平面、參數、類型與形體，並把形體綁到參數上，做出可撓曲（flex）的參數化族群。
+`rfa_*` 系列共 23 支工具，作用對象是 **Revit 目前作用中的族群文件（.rfa）**。用途是讓 AI 在族群編輯器裡建立參考平面、參數、類型與形體，並把形體綁到參數上，做出可撓曲（flex）的參數化族群。
 
 本文件定義「怎麼用、照什麼順序用、哪些路線已確認走不通」。工具的完整參數以 `MCP-Server/src/tools/rfa-family-tools.ts` 為準。
 
@@ -32,7 +32,7 @@ metadata:
 | 載入專案需要專案已開啟 | `rfa_load_into_project` 只能載入到同一個 Revit 工作階段中**已開啟**的專案，工具不會替使用者開啟 .rvt。存檔可用 `rfa_save_as` |
 | 材質要先存在於族群檔 | `material` 參數只能填族群檔內已有的材質名稱，工具不會從專案或材質庫帶入。缺的材質用 `rfa_create_material` 建立；現有材質可從 `rfa_get_document_info` 的 `materials` 查到 |
 | 單位 | 長度 mm、角度 度、面積 m²、體積 m³、是/否 用 true/false、材質用名稱 |
-| 實機驗證範圍 | 2026-11 只在 **Revit 2027** 實測通過；R22–R26 可編譯但未實測。`rfa_new_family`、`rfa_open_family`、`rfa_load_into_project`、`rfa_create_revolution`、`rfa_create_swept_blend`、`rfa_create_material`、`rfa_set_form_visibility`、`rfa_place_nested_family`、`rfa_modify_parameter`、`rfa_delete_parameter`（及 `rfa_add_parameter` 的共用參數）於 2026-11-16 新增，**尚未實機驗證** |
+| 實機驗證範圍 | 2026-11 只在 **Revit 2027** 實測通過；R22–R26 可編譯但未實測。`rfa_new_family`、`rfa_open_family`、`rfa_load_into_project`、`rfa_create_revolution`、`rfa_create_swept_blend`、`rfa_create_material`、`rfa_set_form_visibility`、`rfa_place_nested_family`、`rfa_modify_parameter`、`rfa_delete_parameter`、`rfa_create_connector`（及 `rfa_add_parameter` 的共用參數）於 2026-11-16 新增，**尚未實機驗證** |
 
 ---
 
@@ -42,7 +42,7 @@ metadata:
 |---|---|---|
 | `rfa_new_family` | 以族群樣板（.rft）建立新族群、存檔並設為作用中文件 | |
 | `rfa_open_family` | 開啟既有 .rfa 並設為作用中文件；已開啟則切換過去 | |
-| `rfa_get_document_info` | 讀族群類別、放置型式、類型、參數現值、參考平面、樓層、視圖、既有形體（含子類別與可見性）、子類別、材質、巢狀族群 | ✅ |
+| `rfa_get_document_info` | 讀族群類別、放置型式、類型、參數現值、參考平面、樓層、視圖、既有形體（含子類別與可見性）、子類別、材質、巢狀族群、接頭 | ✅ |
 | `rfa_set_family_type` | 建立或更新類型，設值／公式，可改名；被操作的類型會成為目前類型 | |
 | `rfa_add_parameter` | 新增族群參數（9 種資料型別，可帶公式或初值）；`shared: true` 時從共用參數檔取定義 | |
 | `rfa_modify_parameter` | 既有參數改名、實例／類型切換、換成共用參數 | |
@@ -58,6 +58,7 @@ metadata:
 | `rfa_create_reference_line` | 在參考平面上建立直線或三點圓弧參考線，並約束到其他參考平面 | |
 | `rfa_set_form_visibility` | 把形體指派到子類別（可自動建立並設線色／線寬／材質），設定詳細等級與視圖方向的可見性 | |
 | `rfa_place_nested_family` | 載入巢狀族群、放置實例、把巢狀參數關聯到主族群參數 | |
+| `rfa_create_connector` | 在形體的平面面上建立 MEP 接頭（管／風管／電力／導線管／電纜架） | |
 | `rfa_align_to_reference_plane` | 把形體上與參考平面共面的面鎖到該平面 | |
 | `rfa_create_symbolic_line` | 在參考平面上建立符號線（直線或三點圓弧），可指定子類別線型，並約束到其他參考平面 | |
 | `rfa_save_as` | 把作用中的族群文件另存為 .rfa | |
@@ -306,6 +307,19 @@ metadata:
 - 仍被使用的參數會列在 `refused`。**不要為了讓刪除通過就直接加 `force`**：`force` 會連帶讓引用它的公式失效、尺寸標籤脫落、形體不再跟著動。要用 `force` 必須先讓使用者看過使用報告並明確同意。
 - 一次刪多個參數時，只被「同一批其他參數」引用的參數會在後續輪次一併刪除，所以實際刪除的數量可能多於 dry run 顯示的 `wouldDelete`。
 - 公式引用是用名稱比對判斷的。參數名稱若與函數或單位同名（`if`、`sin`、`pi`、`mm`），會被誤判為「仍在使用」；此時由使用者判斷。
+
+### 5.15 MEP 接頭（Connector）
+
+`rfa_create_connector` 在形體的**平面面**上建立接頭，讓設備、管件、器具族群在專案裡能接上管線。
+
+- **先有面才有接頭**：接頭掛在形體的面上，位置是該面的預設位置（預期為面中心）。要讓接頭在指定位置，就先建一個端面剛好在那裡的形體（常見作法是一小段代表接管的圓柱擠出）。
+- 選面：`faceNormal` 是該面朝外的方向；同方向有多個面時加 `facePointMm`。沒有給 `facePointMm` 時取最外側的面，並在 warnings 列出所有候選。找不到面時，錯誤訊息會列出形體實際有的平面面。
+- `domain`：`pipe` / `duct` / `electrical` / `conduit` / `cableTray`。`systemType` 填 Revit 列舉名稱（例如 `SupplyHydronic`、`SupplyAir`、`ReturnAir`），填錯時錯誤訊息會列出可用名稱。省略時管與風管用 `Global`、電力用 `PowerBalanced`。
+- 尺寸：圓形給 `diameterMm`；矩形／橢圓風管與電纜架給 `widthMm` + `heightMm`。
+- `associate`：`diameter` / `radius` / `width` / `height` → 族群參數。接頭若只有半徑參數，工具不會自動把直徑參數綁上去；warnings 會提示另建一個公式為「直徑 / 2」的參數來綁 `radius`。
+- 族群類別不接受某種接頭時（例如家具族群加風管接頭），該筆會列在 `errors` 並附上族群類別名稱。機電族群請從機械設備、衛工裝置、管配件等類別的樣板開始。
+- 流量、壓降、電氣負載等**工程參數不在這支工具的範圍**；這些數值的來源與方法依 `domain/mep-space-demand-matrix.md` 等對應的 domain 文件，不要憑印象填。
+- 建立後用 `rfa_get_document_info` 的 `connectors` 核對位置、方向與尺寸。
 
 ---
 
