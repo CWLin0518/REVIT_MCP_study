@@ -589,12 +589,18 @@ namespace RevitMCP.Core
 
             var list = parameters["parameters"] as JArray;
             if (list == null || list.Count == 0)
-                throw new Exception("請提供 parameters 陣列（每個元素含 name、type，可選 group、isInstance、formula、value）");
+                throw new Exception("請提供 parameters 陣列（每個元素含 name、type，可選 group、isInstance、formula、value；共用參數改傳 shared: true）");
+
+            string sharedFile = parameters["sharedParameterFile"]?.Type == JTokenType.String
+                ? parameters["sharedParameterFile"].Value<string>() : null;
 
             var created = new List<object>();
             var skipped = new List<object>();
             var errors = new List<object>();
+            string sharedFileUsed = null;
 
+            // 共用參數檔需涵蓋整個 Transaction（含 Commit）後才還原，見 RfaSharedParamSource 說明（CommandExecutor.RfaFamily9.cs）
+            using (var sharedSource = new RfaSharedParamSource(doc.Application, sharedFile))
             using (var t = new Transaction(doc, "MCP: rfa_add_parameter"))
             {
                 t.Start();
@@ -609,22 +615,49 @@ namespace RevitMCP.Core
                         continue;
                     }
 
-                    string typeKey = (p["type"]?.Value<string>() ?? "length").Trim().ToLowerInvariant();
-                    ForgeTypeId spec = RfaSpecMap.Where(m => m.Key == typeKey).Select(m => m.Spec).FirstOrDefault();
-                    if (spec == null)
+                    bool isShared = p["shared"]?.Type == JTokenType.Boolean && p["shared"].Value<bool>();
+                    string typeKey;
+                    ForgeTypeId spec;
+                    ExternalDefinition exDef = null;
+                    if (isShared)
                     {
-                        errors.Add(new { name, error = $"不支援的 type「{typeKey}」（可用: {string.Join(", ", RfaSpecMap.Select(m => m.Key))}）" });
-                        continue;
+                        // 共用參數：型別由共用參數定義決定，type 欄位忽略
+                        try
+                        {
+                            DefinitionFile defFile = sharedSource.Open();
+                            sharedFileUsed = sharedSource.FilePath;
+                            exDef = RfaFindSharedDefinition(defFile, name, p["sharedGuid"]?.Value<string>());
+                        }
+                        catch (Exception ex)
+                        {
+                            errors.Add(new { name, error = ex.Message });
+                            continue;
+                        }
+                        spec = exDef.GetDataType();
+                        typeKey = RfaSpecName(spec);
+                    }
+                    else
+                    {
+                        typeKey = (p["type"]?.Value<string>() ?? "length").Trim().ToLowerInvariant();
+                        spec = RfaSpecMap.Where(m => m.Key == typeKey).Select(m => m.Spec).FirstOrDefault();
+                        if (spec == null)
+                        {
+                            errors.Add(new { name, error = $"不支援的 type「{typeKey}」（可用: {string.Join(", ", RfaSpecMap.Select(m => m.Key))}）" });
+                            continue;
+                        }
                     }
 
                     bool isInstance = p["isInstance"]?.Value<bool>() ?? false;
                     string groupName = p["group"]?.Value<string>()
-                                       ?? (typeKey == "material" ? "materials" : typeKey == "text" ? "identity_data" : "dimensions");
+                                       ?? (isShared ? RfaDefaultGroupForSpec(spec)
+                                           : typeKey == "material" ? "materials" : typeKey == "text" ? "identity_data" : "dimensions");
 
                     FamilyParameter fp;
                     try
                     {
-                        fp = fm.AddParameter(name, RfaGroupFromName(groupName), spec, isInstance);
+                        fp = isShared
+                            ? fm.AddParameter(exDef, RfaGroupFromName(groupName), isInstance)
+                            : fm.AddParameter(name, RfaGroupFromName(groupName), spec, isInstance);
                     }
                     catch (Exception ex)
                     {
@@ -650,6 +683,24 @@ namespace RevitMCP.Core
                         }
                     }
 
+                    if (isShared)
+                    {
+                        created.Add(new
+                        {
+                            name,
+                            type = typeKey,
+                            group = groupName,
+                            isInstance,
+                            shared = true,
+                            guid = exDef.GUID.ToString(),
+                            definitionGroup = exDef.OwnerGroup?.Name,
+                            formula = string.IsNullOrEmpty(fp.Formula) ? null : fp.Formula,
+                            currentValue = RfaReadValue(doc, fm.CurrentType, fp),
+                            note,
+                        });
+                        continue;
+                    }
+
                     created.Add(new
                     {
                         name,
@@ -664,6 +715,8 @@ namespace RevitMCP.Core
                 t.Commit();
             }
 
+            if (sharedFileUsed != null)
+                return new { createdCount = created.Count, created, skipped, errors, sharedParameterFile = sharedFileUsed };
             return new { createdCount = created.Count, created, skipped, errors };
         }
 

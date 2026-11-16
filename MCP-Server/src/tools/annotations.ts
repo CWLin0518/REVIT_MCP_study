@@ -74,6 +74,8 @@ export const DESTRUCTIVE_NAMES: Set<string> = new Set([
     // 會從 MEP 尺寸目錄移除項目。雖然預設 dryRun、會擋下模型仍在使用的尺寸、
     // 且偵測到誤刪會自動復原，但「移除」本身仍應對 host 誠實標示，讓它有機會加確認關卡。
     "curate_mep_sizes",
+    // 會從作用中族群檔移除族群參數。預設 dryRun、仍被公式／關聯／標註引用的參數需 force 才刪，但刪除本身不可逆。
+    "rfa_delete_parameter",
 ]);
 
 type ClassificationHints = Pick<ToolAnnotations, "readOnlyHint" | "destructiveHint"> & {

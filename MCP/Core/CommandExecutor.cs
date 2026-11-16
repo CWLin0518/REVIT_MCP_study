@@ -855,6 +855,14 @@ namespace RevitMCP.Core
                         result = RfaPlaceNestedFamily(parameters);
                         break;
 
+                    case "rfa_modify_parameter":
+                        result = RfaModifyParameter(parameters);
+                        break;
+
+                    case "rfa_delete_parameter":
+                        result = RfaDeleteParameter(parameters);
+                        break;
+
                     default:
                         throw new NotImplementedException($"未實作的命令: {request.CommandName}");
                 }

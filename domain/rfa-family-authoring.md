@@ -2,7 +2,7 @@
 name: rfa-family-authoring
 description: "用 rfa_* 工具在族群編輯器中建立參數化族群的 SOP：前置條件、建立順序（類型→參數→參考平面→尺寸標籤→形體→對齊鎖定→撓曲測試）、四種形體（擠出/融合/掃掠/參考線掃掠）的座標約定、參數化管件配方，以及實測確認行不通的路線。觸發：族群建模、RFA 建模、參數化族群、族群編輯器、rfa_create_extrusion、參考線掃掠、Rhino 轉族群。"
 metadata:
-  version: "1.8"
+  version: "1.9"
   updated: "2026-11-16"
   created: "2026-11-10"
   references:
@@ -18,7 +18,7 @@ metadata:
 
 # RFA 族群建模工作流程（rfa_* Family Authoring）
 
-`rfa_*` 系列共 20 支工具，作用對象是 **Revit 目前作用中的族群文件（.rfa）**。用途是讓 AI 在族群編輯器裡建立參考平面、參數、類型與形體，並把形體綁到參數上，做出可撓曲（flex）的參數化族群。
+`rfa_*` 系列共 22 支工具，作用對象是 **Revit 目前作用中的族群文件（.rfa）**。用途是讓 AI 在族群編輯器裡建立參考平面、參數、類型與形體，並把形體綁到參數上，做出可撓曲（flex）的參數化族群。
 
 本文件定義「怎麼用、照什麼順序用、哪些路線已確認走不通」。工具的完整參數以 `MCP-Server/src/tools/rfa-family-tools.ts` 為準。
 
@@ -32,7 +32,7 @@ metadata:
 | 載入專案需要專案已開啟 | `rfa_load_into_project` 只能載入到同一個 Revit 工作階段中**已開啟**的專案，工具不會替使用者開啟 .rvt。存檔可用 `rfa_save_as` |
 | 材質要先存在於族群檔 | `material` 參數只能填族群檔內已有的材質名稱，工具不會從專案或材質庫帶入。缺的材質用 `rfa_create_material` 建立；現有材質可從 `rfa_get_document_info` 的 `materials` 查到 |
 | 單位 | 長度 mm、角度 度、面積 m²、體積 m³、是/否 用 true/false、材質用名稱 |
-| 實機驗證範圍 | 2026-11 只在 **Revit 2027** 實測通過；R22–R26 可編譯但未實測。`rfa_new_family`、`rfa_open_family`、`rfa_load_into_project`、`rfa_create_revolution`、`rfa_create_swept_blend`、`rfa_create_material`、`rfa_set_form_visibility`、`rfa_place_nested_family` 於 2026-11-16 新增，**尚未實機驗證** |
+| 實機驗證範圍 | 2026-11 只在 **Revit 2027** 實測通過；R22–R26 可編譯但未實測。`rfa_new_family`、`rfa_open_family`、`rfa_load_into_project`、`rfa_create_revolution`、`rfa_create_swept_blend`、`rfa_create_material`、`rfa_set_form_visibility`、`rfa_place_nested_family`、`rfa_modify_parameter`、`rfa_delete_parameter`（及 `rfa_add_parameter` 的共用參數）於 2026-11-16 新增，**尚未實機驗證** |
 
 ---
 
@@ -44,7 +44,9 @@ metadata:
 | `rfa_open_family` | 開啟既有 .rfa 並設為作用中文件；已開啟則切換過去 | |
 | `rfa_get_document_info` | 讀族群類別、放置型式、類型、參數現值、參考平面、樓層、視圖、既有形體（含子類別與可見性）、子類別、材質、巢狀族群 | ✅ |
 | `rfa_set_family_type` | 建立或更新類型，設值／公式，可改名；被操作的類型會成為目前類型 | |
-| `rfa_add_parameter` | 新增族群參數（9 種資料型別，可帶公式或初值） | |
+| `rfa_add_parameter` | 新增族群參數（9 種資料型別，可帶公式或初值）；`shared: true` 時從共用參數檔取定義 | |
+| `rfa_modify_parameter` | 既有參數改名、實例／類型切換、換成共用參數 | |
+| `rfa_delete_parameter` | 刪除參數（**破壞性**；預設 dryRun，仍被使用時拒絕） | |
 | `rfa_create_material` | 在族群檔內建立材質（顏色、透明度、類別，或複製既有材質） | |
 | `rfa_create_reference_plane` | 建立具名參考平面（簡式 normal + offsetMm，或進階式三向量） | |
 | `rfa_create_dimension` | 在平行參考平面之間標尺寸；兩平面可掛長度參數標籤，三個以上可設 EQ | |
@@ -279,6 +281,32 @@ metadata:
 - **已知限制**：實例放在固定座標，這支工具不會把它約束到參考平面。主族群撓曲時實例不會跟著移動，除非巢狀族群本身的尺寸由關聯參數驅動。位置需要跟著參數動的情況，目前要由使用者在 Revit 手動對齊鎖定。
 - `reload: true` 會以檔案重新載入已存在的巢狀族群；`overwriteParameterValues: true` 會覆蓋其類型參數值，**執行前先向使用者確認**。
 
+### 5.14 參數維護（Shared / Modify / Delete）
+
+**共用參數**：`rfa_add_parameter` 的項目加上 `shared: true`，定義就從共用參數檔**依名稱**取得（`sharedParameterFile` 指定 .txt，省略則用 Revit 目前設定的檔案）。
+
+- 資料型別由定義決定，`type` 會被忽略。
+- 工具**只讀**共用參數檔，不會新增或修改定義。名稱找不到時，錯誤訊息會列出搜尋過的群組與可用名稱。
+- 同名但 GUID 不同的定義需以 `sharedGuid` 指定。
+- 明細表或標籤要讀得到的參數（例如綠建材、機電容量）必須是共用參數；純粹驅動幾何的尺寸用一般族群參數即可。
+
+**修改**：`rfa_modify_parameter` 可改名、切換實例／類型、把一般參數換成共用參數。
+
+- 內建參數與共用參數不能改名。
+- 改名後檢查回傳的 `formulasNowReferencing`，確認引用它的公式已跟著更新。
+- 同一個項目不能同時 `renameTo` 與 `replaceWithShared`（共用參數的名稱由定義決定）。
+
+**刪除**：`rfa_delete_parameter` 是破壞性工具，流程固定為兩步。
+
+```
+1. dryRun: true（預設）   讀使用報告：被哪些公式引用、綁到哪些形體參數、掛在哪些尺寸標籤上
+2. 向使用者確認後 dryRun: false   只刪沒有被使用的參數
+```
+
+- 仍被使用的參數會列在 `refused`。**不要為了讓刪除通過就直接加 `force`**：`force` 會連帶讓引用它的公式失效、尺寸標籤脫落、形體不再跟著動。要用 `force` 必須先讓使用者看過使用報告並明確同意。
+- 一次刪多個參數時，只被「同一批其他參數」引用的參數會在後續輪次一併刪除，所以實際刪除的數量可能多於 dry run 顯示的 `wouldDelete`。
+- 公式引用是用名稱比對判斷的。參數名稱若與函數或單位同名（`if`、`sin`、`pi`、`mm`），會被誤判為「仍在使用」；此時由使用者判斷。
+
 ---
 
 ## 6. 對齊與尺寸（Constraints）
@@ -331,6 +359,8 @@ metadata:
 | OpenAndActivateDocument 失敗 | Revit 不允許在目前狀態切換文件 | 請使用者在 Revit 手動開啟訊息中的路徑 |
 | Revit 目前開啟了 N 個專案 | `rfa_load_into_project` 未指定目標 | 以 `targetProject` 指定錯誤訊息列出的其中一個 |
 | 沒有開啟任何專案可以載入族群 | 目標 .rvt 未開啟 | 請使用者先在 Revit 開啟專案 |
+| 共用參數檔裡找不到「X」 | `shared: true` 的名稱不在共用參數檔中 | 從錯誤訊息列出的名稱中選，或指定正確的 `sharedParameterFile`；工具不會替你新增定義 |
+| 參數仍被使用，已拒絕刪除 | `rfa_delete_parameter` 發現公式、形體或尺寸仍引用它 | 先解除引用；確定要連帶破壞時，經使用者同意後才用 `force` |
 | 檔案已存在 | `rfa_save_as`、`rfa_new_family` 預設不覆蓋 | 換檔名，或經使用者確認後傳 `overwrite: true` |
 
 ---

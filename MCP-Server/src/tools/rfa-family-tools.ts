@@ -111,21 +111,31 @@ export const rfaFamilyTools: Tool[] = [
         name: "rfa_add_parameter",
         description:
             "Add family parameters to the active family document. Each may carry a formula or an initial value for the current type. " +
-            "Existing names are skipped. Values use mm / degrees / m² / m³ / true-false / material name.",
+            "Existing names are skipped. Values use mm / degrees / m² / m³ / true-false / material name. " +
+            "type is required for plain (non-shared) parameters. With shared: true the item is added as a shared parameter whose definition is looked up BY NAME " +
+            "in sharedParameterFile (or Revit's currently configured shared parameter file); its data type comes from the definition, so type is ignored. " +
+            "The shared parameter file is only read, never modified: a name that is not defined there is reported in errors with the groups searched and the definitions available. " +
+            "Shared results include the definition's type, guid and definitionGroup.",
         inputSchema: {
             type: "object",
             properties: {
+                sharedParameterFile: {
+                    type: "string",
+                    description: "Absolute path of a shared parameter .txt to read definitions from (only used by shared: true items). Default: Revit's currently configured shared parameter file. Revit's setting is restored afterwards.",
+                },
                 parameters: {
                     type: "array",
                     items: {
                         type: "object",
                         properties: {
-                            name: { type: "string" },
+                            name: { type: "string", description: "Parameter name. For shared: true, the name of the definition in the shared parameter file." },
                             type: {
                                 type: "string",
                                 enum: ["length", "number", "integer", "yes_no", "text", "angle", "area", "volume", "material"],
-                                description: "Parameter data type. Default length.",
+                                description: "Parameter data type. Required for non-shared parameters (falls back to length when omitted). Ignored when shared is true.",
                             },
+                            shared: { type: "boolean", description: "Add as a shared parameter from the shared parameter file. Default false." },
+                            sharedGuid: { type: "string", description: "Optional GUID of the shared definition; validates the match and disambiguates definitions with the same name." },
                             group: {
                                 type: "string",
                                 enum: ["dimensions", "constraints", "materials", "identity_data", "data", "text", "graphics", "construction", "visibility", "other"],
@@ -135,7 +145,7 @@ export const rfaFamilyTools: Tool[] = [
                             formula: { type: "string", description: "Optional Revit formula, e.g. \"Width / 2\"." },
                             value: { description: "Optional initial value for the current type (ignored when formula is set)." },
                         },
-                        required: ["name", "type"],
+                        required: ["name"],
                     },
                 },
             },
@@ -672,6 +682,80 @@ export const rfaFamilyTools: Tool[] = [
                     default: false,
                 },
             },
+        },
+    },
+    {
+        name: "rfa_modify_parameter",
+        description:
+            "Rename or convert family parameters. Works on existing parameters of the active family document; nothing is deleted. " +
+            "renameTo renames a family parameter (refused when the new name already exists; built-in and shared parameters cannot be renamed and Revit's message is reported); " +
+            "formulas that referenced the old name are updated by Revit, and formulasNowReferencing lists the parameters whose formula now mentions the new name. " +
+            "isInstance switches between instance and type (reported as unchanged when it already matches). " +
+            "replaceWithShared replaces the parameter with a shared parameter looked up BY NAME (default: the parameter's own name) in sharedParameterFile or Revit's configured shared parameter file, " +
+            "keeping its group and instance/type state (or isInstance when given); Revit re-points formulas and dimension labels to the new parameter. The shared parameter file is never modified. " +
+            "renameTo and replaceWithShared cannot be combined. Each item runs in its own sub-transaction, so a failing item rolls back alone. " +
+            "Returns modified (name, previousName, changes, formulasNowReferencing, guid, parameter), unchanged and errors.",
+        inputSchema: {
+            type: "object",
+            properties: {
+                sharedParameterFile: {
+                    type: "string",
+                    description: "Absolute path of a shared parameter .txt for replaceWithShared. Default: Revit's currently configured shared parameter file. Revit's setting is restored afterwards.",
+                },
+                parameters: {
+                    type: "array",
+                    items: {
+                        type: "object",
+                        properties: {
+                            name: { type: "string", description: "Current name of the family parameter." },
+                            renameTo: { type: "string", description: "New name. Plain family parameters only." },
+                            isInstance: { type: "boolean", description: "true = instance parameter, false = type parameter." },
+                            replaceWithShared: {
+                                type: "object",
+                                description: "Replace this parameter with a shared parameter from the shared parameter file.",
+                                properties: {
+                                    name: { type: "string", description: "Name of the shared definition. Default: the parameter's own name." },
+                                    sharedGuid: { type: "string", description: "Optional GUID of the shared definition; validates the match and disambiguates same-named definitions." },
+                                },
+                            },
+                        },
+                        required: ["name"],
+                    },
+                },
+            },
+            required: ["parameters"],
+        },
+    },
+    {
+        name: "rfa_delete_parameter",
+        description:
+            "Delete family parameters from the active family. Defaults to a dry run (dryRun: true) that changes nothing and returns a usage report per name: " +
+            "other parameters whose formula references it, element parameters associated to it (element id, kind, parameter), dimensions labelled with it (dimension id, view), " +
+            "its own formula, isShared and isBuiltIn, plus wouldDelete. With dryRun: false it deletes only parameters that are not in use; " +
+            "a parameter still referenced by a formula, an element association or a dimension label is refused unless force is true " +
+            "(forced deletion makes Revit drop the referencing formulas, associations and labels; sideEffects lists them). " +
+            "A parameter used only by another parameter in the same request is deleted once that one is gone. Built-in parameters are never removed. " +
+            "Returns dryRun, deleted, refused (name, reason, usage), notFound, errors and reports.",
+        inputSchema: {
+            type: "object",
+            properties: {
+                names: {
+                    type: "array",
+                    items: { type: "string" },
+                    description: "Names of the family parameters to delete.",
+                },
+                dryRun: {
+                    type: "boolean",
+                    description: "Only report usage and what would be deleted. Default true.",
+                    default: true,
+                },
+                force: {
+                    type: "boolean",
+                    description: "Also delete parameters that are still in use. Default false.",
+                    default: false,
+                },
+            },
+            required: ["names"],
         },
     },
 ];
