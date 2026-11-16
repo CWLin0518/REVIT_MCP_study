@@ -180,27 +180,59 @@ export const rfaFamilyTools: Tool[] = [
     {
         name: "rfa_create_dimension",
         description:
-            "Create a dimension in the active family document. Measures between parallel reference planes. " +
-            "Two planes + label binds the dimension to a length parameter (the planes then follow the parameter); three or more planes + equalize sets EQ. " +
-            "Combine with rfa_align_to_reference_plane so forms follow the planes.",
+            "Create a linear or angular dimension in the active family. " +
+            "Linear (default): measures between parallel reference planes; two planes + label binds the dimension to a length parameter (the planes then follow the parameter); three or more planes + equalize sets EQ. " +
+            "Combine with rfa_align_to_reference_plane so forms follow the planes. " +
+            "Angular (angular=true): exactly two non-parallel references in total, from referencePlanes and/or referenceLineIds (straight reference lines only), dimensioned in a view that looks along their common normal (auto-picked). " +
+            "Sector rule: the angle (0-180) between the first reference's direction and the second's; planes come before lines in that order; a reference line's direction is start->end; a reference plane's is its in-view trace pointing from its free end toward its bubble end (fallback: view up, then view right). " +
+            "supplementary=true measures the adjacent sector (180 - angle) instead. label must be an angle parameter whose current value already equals the measured angle (otherwise an error states both); a non-formula label gets a +5 degree flex self-check (rolled back). " +
+            "Returns angleDeg read back from the dimension, the vertex, and each reference's in-view direction.",
         inputSchema: {
             type: "object",
             properties: {
+                angular: {
+                    type: "boolean",
+                    description: "Create an angular dimension between two references instead of a linear one. Default false.",
+                    default: false,
+                },
                 referencePlanes: {
                     type: "array",
                     items: { type: "string" },
-                    description: "Names of parallel reference planes (order does not matter; they are sorted along the normal).",
+                    description:
+                        "Linear: names of parallel reference planes (at least two; order does not matter, they are sorted along the normal). " +
+                        "Angular: reference plane names counted toward the two references, in order; must not be parallel to the other reference.",
                 },
-                label: { type: "string", description: "Length family parameter to label the dimension with (exactly two planes)." },
-                equalize: { type: "boolean", description: "Set EQ on a multi-segment dimension (three or more planes)." },
+                referenceLineIds: {
+                    type: "array",
+                    items: { type: "number" },
+                    description: "Angular only: element ids of straight reference lines (from rfa_create_reference_line), counted after referencePlanes. Arcs are rejected.",
+                },
+                label: {
+                    type: "string",
+                    description: "Linear: length family parameter (exactly two planes). Angular: angle family parameter; its current value must equal the measured angle.",
+                },
+                supplementary: {
+                    type: "boolean",
+                    description: "Angular only: dimension the adjacent sector (180 - angle), e.g. got 135 but wanted 45. Default false.",
+                    default: false,
+                },
+                arcRadiusMm: {
+                    type: "number",
+                    description: "Angular only: radius (mm) of the dimension arc around the vertex. Default 300.",
+                    default: 300,
+                },
+                equalize: { type: "boolean", description: "Linear only: set EQ on a multi-segment dimension (three or more planes)." },
                 throughPointMm: {
                     type: "array",
                     items: { type: "number" },
-                    description: "[x, y, z] mm point the dimension line passes through. Default: end of the first plane, usually outside the geometry.",
+                    description: "Linear only: [x, y, z] mm point the dimension line passes through. Default: end of the first plane, usually outside the geometry.",
                 },
-                viewName: { type: "string", description: "Host view. Auto-picked (plan for vertical planes, elevation for horizontal) when omitted." },
+                viewName: {
+                    type: "string",
+                    description:
+                        "Host view. Auto-picked when omitted: linear = plan for vertical planes, elevation for horizontal; angular = a view whose direction is perpendicular to both references.",
+                },
             },
-            required: ["referencePlanes"],
         },
     },
     {

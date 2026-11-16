@@ -144,6 +144,10 @@ namespace RevitMCP.Core
             Document doc = GetActiveFamilyDocument();
             FamilyManager fm = doc.FamilyManager;
 
+            // 角度模式：兩個參考平面／參考線之間標角度（CommandExecutor.RfaFamily10.cs）
+            if (parameters["angular"]?.Value<bool>() ?? false)
+                return RfaCreateAngularDimension(doc, parameters);
+
             var names = (parameters["referencePlanes"] as JArray)?.Select(t => t.Value<string>()).ToList();
             if (names == null || names.Count < 2)
                 throw new Exception("referencePlanes 至少要兩個參考平面名稱");

@@ -2,7 +2,7 @@
 name: rfa-family-authoring
 description: "用 rfa_* 工具在族群編輯器中建立參數化族群的 SOP：前置條件、建立順序（類型→參數→參考平面→尺寸標籤→形體→對齊鎖定→撓曲測試）、四種形體（擠出/融合/掃掠/參考線掃掠）的座標約定、參數化管件配方，以及實測確認行不通的路線。觸發：族群建模、RFA 建模、參數化族群、族群編輯器、rfa_create_extrusion、參考線掃掠、Rhino 轉族群。"
 metadata:
-  version: "1.9"
+  version: "1.10"
   updated: "2026-11-16"
   created: "2026-11-10"
   references:
@@ -49,7 +49,7 @@ metadata:
 | `rfa_delete_parameter` | 刪除參數（**破壞性**；預設 dryRun，仍被使用時拒絕） | |
 | `rfa_create_material` | 在族群檔內建立材質（顏色、透明度、類別，或複製既有材質） | |
 | `rfa_create_reference_plane` | 建立具名參考平面（簡式 normal + offsetMm，或進階式三向量） | |
-| `rfa_create_dimension` | 在平行參考平面之間標尺寸；兩平面可掛長度參數標籤，三個以上可設 EQ | |
+| `rfa_create_dimension` | 在平行參考平面之間標尺寸（可掛長度參數、設 EQ）；`angular: true` 時標兩條參考線／平面的夾角並可掛角度參數 | |
 | `rfa_create_extrusion` | 擠出（實體／空心），可多迴圈開孔 | |
 | `rfa_create_blend` | 融合：底部一個迴圈、頂部一個迴圈 | |
 | `rfa_create_revolution` | 旋轉：輪廓繞草圖平面上的軸線旋轉，可設起訖角度 | |
@@ -324,6 +324,16 @@ metadata:
 
 - 對每個參考平面，找出形體上**已經與它共面**的平面面，建立鎖定對齊。
 - 面沒有落在平面上就找不到，不會自動移動形體。
+
+### 6.3 角度標註（`rfa_create_dimension` 的 `angular: true`）
+
+2026-11-16 新增，**尚未實機驗證**。
+
+- 剛好兩個參考：`referencePlanes`（不平行的兩個平面）與 `referenceLineIds`（直線參考線）任意組合，順序是先平面、後參考線。
+- `label` 必須是**角度**參數，且目前夾角要等於參數現值，否則工具會回報兩個數值並拒絕。
+- 量的是第一個參考方向到第二個參考方向的夾角（0–180°）：參考線方向為起點→終點。拿到的是補角（例如要 45° 卻得到 135°）時，加 `supplementary: true` 重做。
+- 回傳的 `angleDeg` 是從尺寸讀回的值，`flexCheck` 是暫時把參數 +5° 後重新量測的結果。`flexCheck` 不是 OK 時，通常是會轉動的那條參考線沒有固定在頂點上——先用 `rfa_create_reference_line` 的 constraints 把端點鎖在頂點。
+- `equalize`、`throughPointMm` 不能與 `angular` 併用。
 
 ---
 
