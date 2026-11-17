@@ -376,18 +376,50 @@ namespace RevitMCP.Core
             object Result(List<object> deletedList, List<object> requestedList, List<object> collateralList,
                           List<object> significantList, bool requiresForce, bool executed, int wouldDeleteCount)
             {
+                // 輸出瘦身：deleted / requested 的尺寸只留精簡 constraint；
+                // 非重大連帶項目不帶 constraint，且超過上限時截斷；significantCollateral 只列 id
+                var counts = new Dictionary<string, int>();
+                var shownCollateral = new List<object>();
+                int nonSigShown = 0, truncated = 0;
+                foreach (var o in collateralList)
+                {
+                    var c = (Dictionary<string, object>)o;
+                    string k = c.TryGetValue("kind", out object kv) && kv != null ? kv.ToString() : "unknown";
+                    counts[k] = counts.TryGetValue(k, out int n) ? n + 1 : 1;
+                    bool sig = c.TryGetValue("significant", out object sv) && sv is bool sb && sb;
+                    if (sig)
+                    {
+                        shownCollateral.Add(c);
+                        continue;
+                    }
+                    if (nonSigShown >= RfaDeleteCollateralLimit) { truncated++; continue; }
+                    nonSigShown++;
+                    var slim = new Dictionary<string, object>
+                    {
+                        ["id"] = c["id"],
+                        ["kind"] = c.TryGetValue("kind", out object k2) ? k2 : null,
+                        ["name"] = c.TryGetValue("name", out object nm) ? nm : null,
+                        ["label"] = c.TryGetValue("label", out object lb) ? lb : null,
+                        ["significant"] = false,
+                    };
+                    shownCollateral.Add(slim);
+                }
+
                 return new
                 {
                     dryRun,
                     force,
                     executed,
-                    deleted = deletedList,
-                    requested = requestedList,
-                    collateral = collateralList,
+                    deleted = deletedList.Select(RfaCompactDeleteItem).ToList(),
+                    requested = requestedList.Select(RfaCompactDeleteItem).ToList(),
+                    collateral = shownCollateral,
+                    collateralCounts = counts,
+                    collateralTruncated = truncated,
                     refused,
                     notFound,
                     requiresForce,
-                    significantCollateral = significantList,
+                    significantCollateral = significantList
+                        .Select(s => ((Dictionary<string, object>)s)["id"]).ToList(),
                     totalDeletedByRevit = wouldDeleteCount,
                     warnings,
                 };
@@ -559,6 +591,38 @@ namespace RevitMCP.Core
                 .Where(c => actualSet.Contains((IdType)((Dictionary<string, object>)c)["id"])).ToList();
 
             return Result(deletedList, requestedList, collateralActual, significant, requiresForce, true, actual.Count);
+        }
+
+        /// <summary>rfa_delete_elements 回傳中非重大連帶項目的上限（超過者只計數）</summary>
+        private const int RfaDeleteCollateralLimit = 40;
+
+        /// <summary>
+        /// deleted / requested 項目瘦身：只有 Dimension / Alignment 保留 constraint，
+        /// 且只留 id、kind、label、valueMm / angleDeg；其他種類不帶 constraint。
+        /// </summary>
+        private static object RfaCompactDeleteItem(object o)
+        {
+            var src = o as Dictionary<string, object>;
+            if (src == null) return o;
+            var d = new Dictionary<string, object>(src);
+            if (!d.TryGetValue("constraint", out object co)) return d;
+            string kind = d.TryGetValue("kind", out object k) ? k as string : null;
+            var c = co as Dictionary<string, object>;
+            if (c == null || (kind != "Dimension" && kind != "Alignment"))
+            {
+                d.Remove("constraint");
+                return d;
+            }
+            var compact = new Dictionary<string, object>
+            {
+                ["id"] = c.TryGetValue("id", out object id) ? id : null,
+                ["kind"] = c.TryGetValue("kind", out object ck) ? ck : null,
+                ["label"] = c.TryGetValue("label", out object lb) ? lb : null,
+            };
+            if (c.TryGetValue("valueMm", out object vm) && vm != null) compact["valueMm"] = vm;
+            if (c.TryGetValue("angleDeg", out object ad) && ad != null) compact["angleDeg"] = ad;
+            d["constraint"] = compact;
+            return d;
         }
 
         /// <summary>形體的草圖（擠出、融合、旋轉、掃掠的斷面草圖等）；讀不到的略過</summary>
