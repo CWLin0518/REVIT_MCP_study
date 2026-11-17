@@ -45,7 +45,7 @@ export const rfaFamilyTools: Tool[] = [
     {
         name: "rfa_get_document_info",
         description:
-            "Read the active family (.rfa) document. Returns category, placement type, types, family parameters with current values, reference planes, levels, views, existing solid/void forms (each with its subcategory name or null and its visibility settings: coarse, medium, fine, planRcp, frontBack, leftRight, whenCutInPlanRcp, or null when the form has none), the subcategories of the family category (id + name), the materials available in the family document (id + name; forms and material parameters can only reference these) " +
+            "Read the active family (.rfa) document. Returns category, placement type, types, family parameters with current values, reference planes, levels, views, existing solid/void forms (each with its subcategory name or null, its visibility settings: coarse, medium, fine, planRcp, frontBack, leftRight, whenCutInPlanRcp, or null when the form has none, and boundingBoxMm {min: [x, y, z], max: [x, y, z]} or null — compare it before/after rfa_set_family_type to verify a form follows a parameter; revolutions also report startAngleDeg/endAngleDeg),the subcategories of the family category (id + name), the materials available in the family document (id + name; forms and material parameters can only reference these) " +
             "and nestedFamilies: every editable, non-in-place family loaded into this family document with id, name, category, type names and instanceCount (use rfa_place_nested_family to load and place more), " +
             "and connectors: every MEP connector in the family with id, domain (pipe, duct, electrical, conduit, cableTray — conduit vs cable tray is inferred from the shape), systemType, shape, originMm, directionVector, flowDirection, isPrimary and diameterMm or widthMm/heightMm; a field that cannot be read is null (use rfa_create_connector to add more). " +
             "Call this first before the other editing rfa_* tools; it fails if the active document is a project instead of a family (use rfa_new_family or rfa_open_family to make a family active).",
@@ -157,7 +157,9 @@ export const rfaFamilyTools: Tool[] = [
         name: "rfa_set_family_type",
         description:
             "Create or update a family type in the active family document. The type becomes current; sets parameter values and formulas, optionally rename. " +
-            "A new type copies values from baseType (or the current type).",
+            "A new type copies values from baseType (or the current type). " +
+            "Revit failures never open a dialog: if a value makes the constraints unsolvable, the whole call is rolled back silently and rolledBack: true is returned with nothing in applied. " +
+            "After commit every requested value and formula is read back; only those that actually took (length within 0.01 mm, angle within 0.001°) are listed in applied, the rest go to errors with requested vs actual and Revit's failure text when captured.",
         inputSchema: {
             type: "object",
             properties: {
@@ -187,6 +189,8 @@ export const rfaFamilyTools: Tool[] = [
             "Angular (angular=true): exactly two non-parallel references in total, from referencePlanes and/or referenceLineIds (straight reference lines only), dimensioned in a view that looks along their common normal (auto-picked). " +
             "Sector rule: the angle (0-180) between the first reference's direction and the second's; planes come before lines in that order; a reference line's direction is start->end; a reference plane's is its in-view trace pointing from its free end toward its bubble end (fallback: view up, then view right). " +
             "supplementary=true measures the adjacent sector (180 - angle) instead. label must be an angle parameter whose current value already equals the measured angle (otherwise an error states both); a non-formula label gets a +5 degree flex self-check (rolled back). " +
+            "If the flex check fails the labelled dimension is NOT kept: the creation is rolled back and an error is returned, because the references are not rigged to rotate (keeping it makes later parameter changes fail with \"Constraints are not satisfied\"). " +
+            "Working rig: create both reference lines with rfa_create_reference_line constraints target \"start\" on two reference planes that intersect at the vertex (anchoring both start points there), lock one line with a \"curve\" constraint to a reference plane, then add the labelled angular dimension. keepIfFlexFails: true keeps the old behaviour (dimension kept, flexCheck FAILED text plus a warning). " +
             "Returns angleDeg read back from the dimension, the vertex, and each reference's in-view direction.",
         inputSchema: {
             type: "object",
@@ -221,6 +225,11 @@ export const rfaFamilyTools: Tool[] = [
                     type: "number",
                     description: "Angular only: radius (mm) of the dimension arc around the vertex. Default 300.",
                     default: 300,
+                },
+                keepIfFlexFails: {
+                    type: "boolean",
+                    description: "Angular + label only: keep the labelled dimension even when the +5 degree flex self-check fails (returns the FAILED text and a warning). Default false = roll the creation back and return an error.",
+                    default: false,
                 },
                 equalize: { type: "boolean", description: "Linear only: set EQ on a multi-segment dimension (three or more planes)." },
                 throughPointMm: {
@@ -510,7 +519,7 @@ export const rfaFamilyTools: Tool[] = [
                 referencePlane: { type: "string", description: "Sketch on this named reference plane instead of plane/planeOffsetMm (keeps the form hosted on it)." },
                 axis: {
                     type: "object",
-                    description: "Revolution axis as a line in the sketch plane's 2D coordinates (mm). Its direction sets the rotation sense (right-hand rule).",
+                    description: "Revolution axis as a line in the sketch plane's 2D coordinates (mm). Reversing the axis (swapping start and end) does NOT flip the sweep: observed on plane XZ, axis [0, 0]→[0, 1000] and [0, 1000]→[0, 0] with angles 0–90 both give a solid in the +X/+Y quadrant. To get the other side, change startAngleDeg/endAngleDeg (e.g. 270–360).",
                     properties: {
                         start: { type: "array", items: { type: "number" }, minItems: 2, maxItems: 2, description: "[u, v] in mm." },
                         end: { type: "array", items: { type: "number" }, minItems: 2, maxItems: 2, description: "[u, v] in mm; must differ from start." },
@@ -611,7 +620,7 @@ export const rfaFamilyTools: Tool[] = [
             "subcategoryStyle sets the subcategory's line color, projection/cut line weights and material (the material must already exist in the family document; create it with rfa_create_material) — it modifies an existing subcategory too, which affects every element on it. " +
             "visibility sets the Family Element Visibility Settings: detail levels (coarse, medium, fine) and view directions (planRcp, frontBack, leftRight, whenCutInPlanRcp); fields not given keep the form's current value. " +
             "Each form is processed on its own; invalid combinations (e.g. void forms, or whenCutInPlanRcp on a category that does not support it) are reported per id in errors or warnings without aborting the others. " +
-            "Returns the subcategory (name, id, created, style read back), updated forms with subcategory and visibility read back from Revit, errors, the sorted available subcategories and warnings. Use rfa_get_document_info to find form ids.",
+            "Returns the subcategory (name, id, created, style read back), updated forms with subcategory and visibility read back from Revit (when clearing, clearMethod names the API route that worked), subcategoryCleared (true only if at least one form was actually cleared), errors, the sorted available subcategories and warnings. Use rfa_get_document_info to find form ids.",
         inputSchema: {
             type: "object",
             properties: {
@@ -901,7 +910,9 @@ export const rfaFamilyTools: Tool[] = [
             "Always refused, even with force: views, levels, families, type elements, materials, parameter elements, subcategory styles, sketches, reference planes that define the family origin, elements Revit cannot delete, and any request whose collateral would remove one of those. " +
             "With dryRun: false the same probe runs first; if the collateral contains anything significant (a labelled dimension, or a form, reference plane, reference line or symbolic line that was not requested and is not part of a deleted form's sketch, a connector, a nested instance) the whole call is refused unless force is true. " +
             "Unlabelled dimensions, alignments, sketches and sketch planes of requested elements are expected collateral and do not need force. " +
-            "Returns dryRun, force, executed, deleted (id, kind, name; empty on a dry run or refusal), requested, collateral (id, kind, name, label, significant), refused (id, reason), notFound, requiresForce, significantCollateral, totalDeletedByRevit and warnings. " +
+            "Returns dryRun, force, executed, deleted and requested (id, kind, name, label; dimensions/alignments add a compact constraint with id, kind, label, valueMm or angleDeg; deleted is empty on a dry run or refusal), " +
+            "collateral (non-significant items carry only id, kind, name, label, significant and are capped at 40, with collateralTruncated giving the number omitted; significant items also carry constraint and significantReason), collateralCounts (kind → count over all collateral), " +
+            "refused (id, reason), notFound, requiresForce, significantCollateral (ids only; details are in collateral), totalDeletedByRevit and warnings. " +
             "Use rfa_list_constraints and rfa_get_document_info to find ids first.",
         inputSchema: {
             type: "object",

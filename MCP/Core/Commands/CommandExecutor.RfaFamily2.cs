@@ -71,7 +71,7 @@ namespace RevitMCP.Core
                 {
                     var mat = new FilteredElementCollector(doc).OfClass(typeof(Material)).Cast<Material>()
                         .FirstOrDefault(m => m.Name == materialName);
-                    if (mat == null) warnings.Add($"族群檔內找不到材質「{materialName}」，未指定材質");
+                    if (mat == null) warnings.Add($"族群檔內找不到材質「{materialName}」，未指定材質；請先用 rfa_create_material 建立");
                     else form.get_Parameter(BuiltInParameter.MATERIAL_ID_PARAM)?.Set(mat.Id);
                 }
             }

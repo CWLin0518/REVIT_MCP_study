@@ -109,7 +109,7 @@ namespace RevitMCP.Core
         }
 
         /// <summary>找不到樣板時的說明：搜尋的資料夾、資料夾狀態、可用樣板名稱（最多 30 個）</summary>
-        private static string RfaDescribeAvailableTemplates(string root, List<string> all)
+        private static string RfaDescribeAvailableTemplates(string root, List<string> all, string wanted = null)
         {
             if (string.IsNullOrWhiteSpace(root))
                 return "Revit 的族群樣板預設路徑（FamilyTemplatePath）未設定，無法以 templateName 搜尋；請改傳 templatePath（.rft 完整路徑），或在 Revit 選項 > 檔案位置 設定族群樣板資料夾。";
@@ -122,9 +122,60 @@ namespace RevitMCP.Core
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
                 .ToList();
-            string shown = string.Join(", ", names.Take(RfaTemplateListLimit));
-            string more = names.Count > RfaTemplateListLimit ? $" …（共 {names.Count} 個，只列前 {RfaTemplateListLimit} 個）" : $"（共 {names.Count} 個）";
-            return $"搜尋的資料夾: {root}（含子資料夾）。可用樣板: {shown}{more}";
+
+            if (string.IsNullOrWhiteSpace(wanted))
+            {
+                string shownAll = string.Join(", ", names.Take(RfaTemplateListLimit));
+                string moreAll = names.Count > RfaTemplateListLimit ? $" …（共 {names.Count} 個，只列前 {RfaTemplateListLimit} 個）" : $"（共 {names.Count} 個）";
+                return $"搜尋的資料夾: {root}（含子資料夾）。可用樣板: {shownAll}{moreAll}";
+            }
+
+            List<string> ranked = RfaRankTemplateNames(names, wanted.Trim());
+            if (ranked.Count == 0)
+                return $"搜尋的資料夾: {root}（含子資料夾），共 {names.Count} 個樣板，沒有任何名稱與「{wanted.Trim()}」相近。請確認樣板名稱（可在 Revit 的新建族群對話框查看），或改傳 templatePath。";
+            return $"搜尋的資料夾: {root}（含子資料夾），共 {names.Count} 個樣板。與「{wanted.Trim()}」最接近的 {ranked.Count} 個: {string.Join(", ", ranked)}";
+        }
+
+        /// <summary>
+        /// 樣板名稱排序（最多 RfaTemplateListLimit 個）：先列含有要求名稱任一空白分隔詞（不分大小寫）的樣板，
+        /// 符合詞數多者在前；不足時再以「與要求名稱共同前綴最長」者補足（共同前綴為 0 的不列）。
+        /// </summary>
+        private static List<string> RfaRankTemplateNames(List<string> names, string wanted)
+        {
+            var tokens = wanted.Split((char[])null, StringSplitOptions.RemoveEmptyEntries)
+                .Select(s => s.Trim())
+                .Where(s => s.Length > 0)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            var result = names
+                .Select(n => new { n, hits = tokens.Count(tk => n.IndexOf(tk, StringComparison.OrdinalIgnoreCase) >= 0) })
+                .Where(x => x.hits > 0)
+                .OrderByDescending(x => x.hits)
+                .ThenBy(x => x.n, StringComparer.OrdinalIgnoreCase)
+                .Select(x => x.n)
+                .Take(RfaTemplateListLimit)
+                .ToList();
+
+            if (result.Count < RfaTemplateListLimit)
+            {
+                int CommonPrefix(string a)
+                {
+                    int i = 0, max = Math.Min(a.Length, wanted.Length);
+                    while (i < max && char.ToLowerInvariant(a[i]) == char.ToLowerInvariant(wanted[i])) i++;
+                    return i;
+                }
+                var chosen = new HashSet<string>(result, StringComparer.OrdinalIgnoreCase);
+                result.AddRange(names
+                    .Where(n => !chosen.Contains(n))
+                    .Select(n => new { n, len = CommonPrefix(n) })
+                    .Where(x => x.len > 0)
+                    .OrderByDescending(x => x.len)
+                    .ThenBy(x => x.n, StringComparer.OrdinalIgnoreCase)
+                    .Select(x => x.n)
+                    .Take(RfaTemplateListLimit - result.Count));
+            }
+            return result;
         }
 
         private object RfaNewFamily(JObject parameters)
@@ -151,7 +202,7 @@ namespace RevitMCP.Core
                     throw new Exception($"templatePath 副檔名必須是 .rft，收到: {Path.GetExtension(templatePath)}");
                 template = Path.GetFullPath(templatePath);
                 if (!File.Exists(template))
-                    throw new Exception($"找不到族群樣板: {template}。{RfaDescribeAvailableTemplates(templateRoot, RfaListTemplates(templateRoot))}");
+                    throw new Exception($"找不到族群樣板: {template}。{RfaDescribeAvailableTemplates(templateRoot, RfaListTemplates(templateRoot), Path.GetFileNameWithoutExtension(template))}");
             }
             else
             {
@@ -161,7 +212,7 @@ namespace RevitMCP.Core
                 List<string> all = RfaListTemplates(templateRoot);
                 var matches = all.Where(f => string.Equals(Path.GetFileNameWithoutExtension(f), wanted, StringComparison.OrdinalIgnoreCase)).ToList();
                 if (matches.Count == 0)
-                    throw new Exception($"找不到名為「{wanted}」的族群樣板。{RfaDescribeAvailableTemplates(templateRoot, all)}");
+                    throw new Exception($"找不到名為「{wanted}」的族群樣板。{RfaDescribeAvailableTemplates(templateRoot, all, wanted)}");
                 if (matches.Count > 1)
                     throw new Exception($"有 {matches.Count} 個樣板都叫「{wanted}」，請改用 templatePath 指定其中一個: {string.Join(" | ", matches)}");
                 template = matches[0];
