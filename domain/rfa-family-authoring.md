@@ -2,8 +2,8 @@
 name: rfa-family-authoring
 description: "用 rfa_* 工具在族群編輯器中建立參數化族群的 SOP：前置條件、建立順序（類型→參數→參考平面→尺寸標籤→形體→對齊鎖定→撓曲測試）、四種形體（擠出/融合/掃掠/參考線掃掠）的座標約定、參數化管件配方，以及實測確認行不通的路線。觸發：族群建模、RFA 建模、參數化族群、族群編輯器、rfa_create_extrusion、參考線掃掠、Rhino 轉族群。"
 metadata:
-  version: "1.12"
-  updated: "2026-11-16"
+  version: "1.13"
+  updated: "2026-11-17"
   created: "2026-11-10"
   references:
     - "Revit API: FamilyItemFactory (NewExtrusion / NewBlend / NewSweep / NewReferencePlane / NewDimension / NewAlignment)"
@@ -32,7 +32,7 @@ metadata:
 | 載入專案需要專案已開啟 | `rfa_load_into_project` 只能載入到同一個 Revit 工作階段中**已開啟**的專案，工具不會替使用者開啟 .rvt。存檔可用 `rfa_save_as` |
 | 材質要先存在於族群檔 | `material` 參數只能填族群檔內已有的材質名稱，工具不會從專案或材質庫帶入。缺的材質用 `rfa_create_material` 建立；現有材質可從 `rfa_get_document_info` 的 `materials` 查到 |
 | 單位 | 長度 mm、角度 度、面積 m²、體積 m³、是/否 用 true/false、材質用名稱 |
-| 實機驗證範圍 | 2026-11 只在 **Revit 2027** 實測通過；R22–R26 可編譯但未實測。`rfa_new_family`、`rfa_open_family`、`rfa_load_into_project`、`rfa_create_revolution`、`rfa_create_swept_blend`、`rfa_create_material`、`rfa_set_form_visibility`、`rfa_place_nested_family`、`rfa_modify_parameter`、`rfa_delete_parameter`、`rfa_create_connector`、`rfa_list_constraints`、`rfa_delete_elements`（及 `rfa_add_parameter` 的共用參數）於 2026-11-16 新增，**尚未實機驗證** |
+| 實機驗證範圍 | 2026-11 只在 **Revit 2027** 實測通過；R22–R26 可編譯但未實測。`rfa_new_family`、`rfa_open_family`、`rfa_load_into_project`、`rfa_create_revolution`、`rfa_create_swept_blend`、`rfa_create_material`、`rfa_set_form_visibility`、`rfa_place_nested_family`、`rfa_modify_parameter`、`rfa_delete_parameter`、`rfa_create_connector`、`rfa_list_constraints`、`rfa_delete_elements`（及 `rfa_add_parameter` 的共用參數）於 2026-11-16 新增，2026-11-17 已在 Revit 2027 完成實機測試清單（T1–T11、R、V 全數有結果） |
 
 ---
 
@@ -238,7 +238,7 @@ metadata:
 - `startAngleDeg` / `endAngleDeg` 預設 0 / 360，跨度需介於 0.01° 與 360° 之間。
 - `associate` 可綁 `startAngle`、`endAngle`（角度參數）、`material`、`visible`。
 - 回傳 `boundingBoxMm`，用來比對形體是否落在預期位置。
-- **尚未實機驗證的項目**：部分旋轉（非 360°）的起始方向與旋轉方向。做部分旋轉時，務必用回傳的 `boundingBoxMm` 確認方向，不對就對調軸線的 start / end 或調整角度，不要假設。
+- **部分旋轉的方向（Revit 2027 實測）**：對調軸線的 start / end **不會**反轉旋轉方向——繞 +Z 或 −Z 做 0→90°，形體都落在 +X/+Y 象限。要換到其他象限請改 `startAngleDeg` / `endAngleDeg`，並以回傳的 `boundingBoxMm` 確認落點；綁定 `endAngle` 後調參數，形體會跟著轉（實測 end angle 改為 180°）。
 
 ### 5.10 掃掠融合（Swept Blend）
 
@@ -248,7 +248,7 @@ metadata:
 - `startProfile`、`endProfile` 各一個封閉迴圈，座標約定同掃掠斷面（[u, v] mm，Revit 會放到路徑端點並垂直於路徑）。
 - `associate` 可綁 `material`、`visible`。
 - **建立後務必核對回傳值**：`startProfileCurves` / `endProfileCurves` 是 Revit 實際放在兩端的斷面組成（例如「4 Line」「2 Arc」），`profilesSwapped` 表示工具是否對調重建過，`boundingBoxMm` 可確認哪一端較寬。
-- **尚未實機驗證的項目**：工具用幾何位置判斷哪個斷面落在路徑起點，這個判斷假設 Revit 讀回的斷面是模型座標。若 warnings 出現「無法判斷兩端」，以 `boundingBoxMm` 為準人工確認；兩端相反時，把 `startProfile` 與 `endProfile` 對調重建。
+- **兩端判斷（Revit 2027 實測）**：工具用幾何位置判斷哪個斷面落在路徑起點；實測 Revit 讀回的斷面確實是模型座標，直線與圓弧路徑都沒有發生兩端對調。以 `pathReferenceLineId` 建立的形體會跟著參考線移動（flex 後 `boundingBoxMm` 實測跟隨）。若 warnings 仍出現「無法判斷兩端」，以 `boundingBoxMm` 為準人工確認；兩端相反時，把 `startProfile` 與 `endProfile` 對調重建。
 
 ### 5.11 材質（Material）
 
@@ -343,7 +343,9 @@ metadata:
 
 ### 6.3 角度標註（`rfa_create_dimension` 的 `angular: true`）
 
-2026-11-16 新增，**尚未實機驗證**。
+2026-11-16 新增，2026-11-17 於 Revit 2027 實機驗證：未固定頂點的一對參考線加標籤會被拒絕並完整復原、不跳出 Revit 對話框；固定頂點的一對可實際 flex（45° → 60°）；同一對參考已有帶標籤尺寸時，回報過度約束並拒絕。
+
+可用的固定方式（實測）：兩條參考線的起點各對齊到兩個在頂點相交的參考平面，其中一條再鎖定曲線約束，然後加標籤。
 
 - 剛好兩個參考：`referencePlanes`（不平行的兩個平面）與 `referenceLineIds`（直線參考線）任意組合，順序是先平面、後參考線。
 - `label` 必須是**角度**參數，且目前夾角要等於參數現值，否則工具會回報兩個數值並拒絕。
