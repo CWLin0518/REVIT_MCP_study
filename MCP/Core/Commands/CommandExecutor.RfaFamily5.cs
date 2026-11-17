@@ -439,9 +439,15 @@ namespace RevitMCP.Core
 
             // ---- 載入前快照 ----
             string expectedName = RfaStripExtension(familyDoc.Title, ".rfa");
-            var familiesBefore = new FilteredElementCollector(project).OfClass(typeof(Family)).Cast<Family>().ToList();
-            var idsBefore = new HashSet<IdType>(familiesBefore.Select(f => f.Id.GetIdValue()));
-            bool sameNameExisted = familiesBefore.Any(f => string.Equals(f.Name, expectedName, StringComparison.OrdinalIgnoreCase));
+            // 先把 id / 名稱 / 類別抄成純值：重新載入時 Revit 可能換掉族群元素（id 改變），舊的 Family 物件之後不能再讀
+            var familiesBefore = new FilteredElementCollector(project).OfClass(typeof(Family)).Cast<Family>()
+                .Select(f =>
+                {
+                    IdType? catId = null;
+                    try { catId = f.FamilyCategory?.Id.GetIdValue(); } catch { }
+                    return new { Id = f.Id.GetIdValue(), Name = f.Name, CategoryId = catId };
+                })
+                .ToList();
 
             if (string.IsNullOrEmpty(familyDoc.PathName))
                 warnings.Add($"族群文件尚未存檔，專案會以目前的標題「{expectedName}」作為族群名稱。若要給它正式名稱，請先用 rfa_save_as 存檔再載入。");
@@ -464,11 +470,18 @@ namespace RevitMCP.Core
             if (loaded == null)
                 throw new Exception($"LoadFamily 沒有回傳族群（族群「{familyDoc.Title}」→ 專案「{project.Title}」）。可能是 IFamilyLoadOptions 拒絕了重新載入，或 Revit 判定無需載入。");
 
-            bool wasReload = idsBefore.Contains(loaded.Id.GetIdValue());
+            // wasReload：載入前專案中已有同名、同類別的族群。
+            // 不以「回傳的族群 id 是否在載入前的 id 集合中」判斷：實測重新載入（內容有變）時 Revit 可能給族群新的 id，類型 id 則不變。
+            IdType loadedId = loaded.Id.GetIdValue();
+            IdType? loadedCatId = null;
+            try { loadedCatId = loaded.FamilyCategory?.Id.GetIdValue(); } catch { }
+            var prior = familiesBefore.FirstOrDefault(f =>
+                string.Equals(f.Name, loaded.Name, StringComparison.OrdinalIgnoreCase)
+                && (f.CategoryId == null || loadedCatId == null || f.CategoryId == loadedCatId));
+            bool wasReload = prior != null;
+            bool familyIdChanged = prior != null && prior.Id != loadedId;
             if (!string.Equals(loaded.Name, expectedName, StringComparison.Ordinal))
                 warnings.Add($"專案中的族群名稱「{loaded.Name}」與由族群文件標題推得的名稱「{expectedName}」不同。");
-            if (wasReload != sameNameExisted)
-                warnings.Add($"載入前同名族群檢查（{sameNameExisted}）與實際是否為重新載入（{wasReload}）不一致；以 wasReload 為準。");
 
             var types = loaded.GetFamilySymbolIds()
                 .Select(id => project.GetElement(id))
@@ -507,11 +520,12 @@ namespace RevitMCP.Core
             return new Dictionary<string, object>
             {
                 ["family"] = loaded.Name,
-                ["familyId"] = loaded.Id.GetIdValue(),
+                ["familyId"] = loadedId,
                 ["expectedFamilyName"] = expectedName,
                 ["targetProject"] = project.Title,
                 ["targetPath"] = string.IsNullOrEmpty(project.PathName) ? null : project.PathName,
                 ["wasReload"] = wasReload,
+                ["familyIdChanged"] = familyIdChanged,
                 ["overwriteParameterValues"] = overwrite,
                 ["category"] = loaded.FamilyCategory?.Name,
                 ["typeCount"] = types.Count,

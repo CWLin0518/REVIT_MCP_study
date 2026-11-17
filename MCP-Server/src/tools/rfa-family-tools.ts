@@ -480,7 +480,7 @@ export const rfaFamilyTools: Tool[] = [
         description:
             "Load the active family into an open project. Equivalent to the family editor's Load into Project: the active family document is loaded into a project (.rvt) already open in the same Revit session. " +
             "targetProject matches a project title (with or without \".rvt\") or full path; when omitted, the only open project is used and the error lists the candidates if there are none or several. " +
-            "If the family already exists in the project it is reloaded (wasReload: true); overwriteParameterValues decides whether existing type parameter values are replaced. " +
+            "If a family with the same name and category already existed in the project it is reloaded (wasReload: true); Revit may give the reloaded family a new element id (familyIdChanged: true) while type ids stay the same. overwriteParameterValues decides whether existing type parameter values are replaced. " +
             "Returns the family name and id in the project, its types and category. The family editor stays the active document unless activateProject is true. " +
             "A family that was never saved loads under its temporary title (e.g. \"Family1\"); use rfa_save_as first to give it a proper name.",
         inputSchema: {
@@ -494,7 +494,7 @@ export const rfaFamilyTools: Tool[] = [
                 },
                 activateProject: {
                     type: "boolean",
-                    description: "After loading, switch Revit's active document to the target project. A failed switch is reported in warnings, not as an error. Default false.",
+                    description: "After loading, switch Revit's active document to the target project. A failed switch is reported in warnings, not as an error; a project that was never saved (no file path) cannot be switched to. Default false.",
                     default: false,
                 },
             },
