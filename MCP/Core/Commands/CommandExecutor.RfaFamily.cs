@@ -29,7 +29,7 @@ namespace RevitMCP.Core
             if (doc == null)
                 throw new Exception("Revit 目前沒有開啟任何文件。請先以族群樣板開啟或新建一個 .rfa。");
             if (!doc.IsFamilyDocument)
-                throw new Exception($"目前作用中的文件「{doc.Title}」是專案檔，不是族群檔。rfa_* 工具只能在族群編輯器中使用，請先切換到要編輯的 .rfa 視窗。");
+                throw new Exception($"目前作用中的文件「{doc.Title}」是專案檔，不是族群檔。rfa_* 工具只能在族群編輯器中使用，請先切換到要編輯的 .rfa 視窗，或用 rfa_new_family（從樣板新建）／rfa_open_family（開啟既有 .rfa）讓族群檔成為作用中文件。");
             return doc;
         }
 
@@ -197,6 +197,116 @@ namespace RevitMCP.Core
             };
         }
 
+        /// <summary>形體的模型包圍盒（mm）；讀不到時回傳 null</summary>
+        private static object RfaFormBoundingBoxMm(Element e)
+        {
+            try
+            {
+                BoundingBoxXYZ bb = e.get_BoundingBox(null);
+                if (bb == null || bb.Min == null || bb.Max == null) return null;
+                return new { min = RfaPt(bb.Min), max = RfaPt(bb.Max) };
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static double? RfaTryAngleDeg(Func<double> read)
+        {
+            try { return Math.Round(UnitUtils.ConvertFromInternalUnits(read(), UnitTypeId.Degrees), 6); }
+            catch { return null; }
+        }
+
+        /// <summary>
+        /// 交易失敗預處理器：Warning 記錄後刪除；有任何 Error 時記錄訊息並回傳 ProceedWithRollBack，
+        /// 讓交易靜默復原（不跳 Revit 對話框），呼叫端以 Commit 狀態判斷是否被復原。
+        /// （SilentFailuresPreprocessor 遇 Error 只記 log 並 Continue，Error 仍會交給 Revit UI 跳出對話框。）
+        /// </summary>
+        private sealed class RfaRollbackOnErrorPreprocessor : IFailuresPreprocessor
+        {
+            public readonly List<string> Errors = new List<string>();
+            public readonly List<string> Warnings = new List<string>();
+
+            public FailureProcessingResult PreprocessFailures(FailuresAccessor accessor)
+            {
+                bool hasError = false;
+                foreach (FailureMessageAccessor msg in accessor.GetFailureMessages())
+                {
+                    string text;
+                    try { text = msg.GetDescriptionText(); } catch { text = "(無法讀取 Revit 失敗訊息)"; }
+                    FailureSeverity sev;
+                    try { sev = msg.GetSeverity(); } catch { sev = FailureSeverity.Error; }
+                    if (sev == FailureSeverity.None) continue;
+                    if (sev == FailureSeverity.Warning)
+                    {
+                        if (!Warnings.Contains(text)) Warnings.Add(text);
+                        try { accessor.DeleteWarning(msg); } catch { }
+                    }
+                    else
+                    {
+                        if (!Errors.Contains(text)) Errors.Add(text);
+                        hasError = true;
+                    }
+                }
+                if (hasError)
+                {
+                    Logger.Error($"[RfaRollbackOnErrorPreprocessor] 交易「{accessor.GetTransactionName()}」有錯誤，已復原：{string.Join(" | ", Errors)}");
+                    return FailureProcessingResult.ProceedWithRollBack;
+                }
+                return FailureProcessingResult.Continue;
+            }
+        }
+
+        /// <summary>
+        /// 比對類型中參數的實際值與要求值（長度容差 0.01 mm、角度 0.001°）。
+        /// actual 為讀回的值（與 RfaReadValue 相同單位）。
+        /// </summary>
+        private static bool RfaValueMatches(Document doc, FamilyType ft, FamilyParameter fp, JToken requested, out object actual)
+        {
+            actual = RfaReadValue(doc, ft, fp);
+            if (requested == null || requested.Type == JTokenType.Null) return actual == null;
+            if (actual == null) return false;
+            try
+            {
+                ForgeTypeId spec = fp.Definition.GetDataType();
+                switch (fp.StorageType)
+                {
+                    case StorageType.Double:
+                    {
+                        double want = requested.Value<double>();
+                        double got = Convert.ToDouble(actual);
+                        double tol = spec == SpecTypeId.Length ? 0.01
+                                   : spec == SpecTypeId.Angle ? 0.001
+                                   : 1e-5 * Math.Max(1.0, Math.Abs(want));
+                        return Math.Abs(got - want) <= tol;
+                    }
+                    case StorageType.Integer:
+                        if (actual is bool b)
+                        {
+                            bool wantB = requested.Type == JTokenType.Boolean ? requested.Value<bool>() : requested.Value<long>() != 0;
+                            return b == wantB;
+                        }
+                        return Convert.ToInt64(actual) == (requested.Type == JTokenType.Boolean ? (requested.Value<bool>() ? 1 : 0) : requested.Value<long>());
+                    case StorageType.String:
+                        return string.Equals(Convert.ToString(actual), requested.Value<string>() ?? string.Empty, StringComparison.Ordinal);
+                    case StorageType.ElementId:
+                        if (requested.Type == JTokenType.Integer)
+                        {
+                            ElementId id = ft.AsElementId(fp);
+                            return id != null && id.GetIdValue() == (IdType)requested.Value<long>();
+                        }
+                        return string.Equals(Convert.ToString(actual), requested.Value<string>(), StringComparison.Ordinal);
+                    default:
+                        return string.Equals(Convert.ToString(actual), requested.ToString(), StringComparison.Ordinal);
+                }
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         #endregion
 
         #region rfa_get_document_info
@@ -241,14 +351,25 @@ namespace RevitMCP.Core
             var types = fm.Types.Cast<FamilyType>().Select(t => t.Name).ToList();
 
             var forms = new FilteredElementCollector(doc).OfClass(typeof(GenericForm)).Cast<GenericForm>()
-                .Select(f => new
+                .Select(f =>
                 {
-                    id = f.Id.GetIdValue(),
-                    kind = f.GetType().Name,
-                    isSolid = f.IsSolid,
-                    name = f.Name,
-                    subcategory = RfaFormSubcategoryName(doc, f),
-                    visibility = RfaReadFormVisibility(f),
+                    var d = new Dictionary<string, object>
+                    {
+                        ["id"] = f.Id.GetIdValue(),
+                        ["kind"] = f.GetType().Name,
+                        ["isSolid"] = f.IsSolid,
+                        ["name"] = f.Name,
+                        ["subcategory"] = RfaFormSubcategoryName(doc, f),
+                        ["visibility"] = RfaReadFormVisibility(f),
+                        // 幾何讀回：撓曲參數後可比對形體是否跟著變（與 rfa_create_revolution 相同，用 get_BoundingBox(null)）
+                        ["boundingBoxMm"] = RfaFormBoundingBoxMm(f),
+                    };
+                    if (f is Revolution rv)
+                    {
+                        d["startAngleDeg"] = RfaTryAngleDeg(() => rv.StartAngle);
+                        d["endAngleDeg"] = RfaTryAngleDeg(() => rv.EndAngle);
+                    }
+                    return d;
                 }).ToList();
 
             // 族群類別的子類別（rfa_set_form_visibility 可建立／指定）
@@ -748,9 +869,19 @@ namespace RevitMCP.Core
             bool createdNew = false;
             var applied = new List<object>();
             var errors = new List<object>();
+            // 交易內「已送出」的設定；Commit 後逐一讀回比對，確認真的生效才列入 applied
+            var pendingValues = new List<KeyValuePair<string, JToken>>();
+            var pendingFormulas = new List<KeyValuePair<string, string>>();
+            var failures = new RfaRollbackOnErrorPreprocessor();
+            TransactionStatus status;
 
             using (var t = new Transaction(doc, "MCP: rfa_set_family_type"))
             {
+                // 失敗預處理器：Warning 靜默刪除；Error（例如「Constraints are not satisfied」）記錄後整筆復原，不跳對話框
+                var fho = t.GetFailureHandlingOptions();
+                fho.SetFailuresPreprocessor(failures);
+                fho.SetClearAfterRollback(true);
+                t.SetFailureHandlingOptions(fho);
                 t.Start();
 
                 FamilyType target = fm.Types.Cast<FamilyType>().FirstOrDefault(ft => ft.Name == typeName);
@@ -785,7 +916,7 @@ namespace RevitMCP.Core
                         {
                             string f = kv.Value?.Type == JTokenType.Null ? null : kv.Value?.Value<string>();
                             fm.SetFormula(fp, string.IsNullOrEmpty(f) ? null : f);
-                            applied.Add(new { parameter = kv.Key, formula = f });
+                            pendingFormulas.Add(new KeyValuePair<string, string>(kv.Key, f));
                         }
                         catch (Exception ex) { errors.Add(new { parameter = kv.Key, error = $"公式設定失敗：{ex.Message}" }); }
                     }
@@ -805,13 +936,63 @@ namespace RevitMCP.Core
                         try
                         {
                             RfaSetValue(doc, fm, fp, kv.Value);
-                            applied.Add(new { parameter = kv.Key, value = RfaReadValue(doc, fm.CurrentType, fp) });
+                            pendingValues.Add(new KeyValuePair<string, JToken>(kv.Key, kv.Value));
                         }
                         catch (Exception ex) { errors.Add(new { parameter = kv.Key, error = ex.Message }); }
                     }
                 }
 
-                t.Commit();
+                status = t.Commit();
+            }
+
+            bool rolledBack = status != TransactionStatus.Committed;
+            string failureText = failures.Errors.Count > 0 ? string.Join(" | ", failures.Errors) : null;
+            string warningText = failures.Warnings.Count > 0 ? string.Join(" | ", failures.Warnings) : null;
+
+            if (rolledBack)
+            {
+                // 整筆交易被復原：沒有任何設定生效（含新建類型、改名）
+                createdNew = false;
+                string why = $"整筆交易已被 Revit 復原（狀態：{status}），沒有任何變更生效"
+                             + (failureText != null ? $"；Revit 訊息：{failureText}" : "")
+                             + "（常見原因：參數值使約束無法滿足，例如角度／長度超出幾何可達範圍）";
+                foreach (var kv in pendingFormulas)
+                    errors.Add(new { parameter = kv.Key, requestedFormula = kv.Value, error = why });
+                foreach (var kv in pendingValues)
+                {
+                    FamilyParameter fp = RfaFindParam(fm, kv.Key);
+                    object actual = fp != null ? RfaReadValue(doc, fm.CurrentType, fp) : null;
+                    errors.Add(new { parameter = kv.Key, requested = kv.Value, actual, error = why, revitFailure = failureText });
+                }
+            }
+            else
+            {
+                foreach (var kv in pendingFormulas)
+                {
+                    FamilyParameter fp = RfaFindParam(fm, kv.Key);
+                    string got = fp == null ? null : (string.IsNullOrEmpty(fp.Formula) ? null : fp.Formula);
+                    bool wantClear = string.IsNullOrEmpty(kv.Value);
+                    if (fp != null && (wantClear ? got == null : got != null))
+                        applied.Add(new { parameter = kv.Key, formula = got });
+                    else
+                        errors.Add(new { parameter = kv.Key, requestedFormula = kv.Value, actualFormula = got, error = "提交後讀回的公式與要求不符", revitFailure = warningText });
+                }
+                foreach (var kv in pendingValues)
+                {
+                    FamilyParameter fp = RfaFindParam(fm, kv.Key);
+                    if (fp == null) { errors.Add(new { parameter = kv.Key, error = "提交後找不到此族群參數" }); continue; }
+                    if (RfaValueMatches(doc, fm.CurrentType, fp, kv.Value, out object actual))
+                        applied.Add(new { parameter = kv.Key, value = actual });
+                    else
+                        errors.Add(new
+                        {
+                            parameter = kv.Key,
+                            requested = kv.Value,
+                            actual,
+                            error = "提交後讀回的值與要求不符（Revit 未採用此值；可能被公式、約束或其他參數覆寫）",
+                            revitFailure = warningText,
+                        });
+                }
             }
 
             var finalValues = fm.Parameters.Cast<FamilyParameter>()
@@ -822,6 +1003,7 @@ namespace RevitMCP.Core
             {
                 type = fm.CurrentType?.Name,
                 createdNew,
+                rolledBack,
                 allTypes = fm.Types.Cast<FamilyType>().Select(ft => ft.Name).ToList(),
                 applied,
                 errors,
