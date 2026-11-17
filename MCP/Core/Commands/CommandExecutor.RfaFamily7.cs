@@ -291,6 +291,55 @@ namespace RevitMCP.Core
             }
         }
 
+        /// <summary>
+        /// 清除形體的子類別（回到族群類別本身）。依序嘗試，每種方法在各自的巢狀子交易中執行，
+        /// 第一個「成功且讀回為未指定子類別」者保留並回傳其名稱；全部失敗時丟出列出所有嘗試結果的例外。
+        /// ① FAMILY_ELEM_SUBCATEGORY 參數設為 InvalidElementId；② Subcategory = null；③ Subcategory = 族群類別。
+        /// </summary>
+        private static string RfaClearFormSubcategory(Document doc, GenericForm form, Category famCat)
+        {
+            if (RfaFormSubcategoryName(doc, form) == null) return "alreadyClear";
+
+            var attempts = new List<KeyValuePair<string, Action>>
+            {
+                new KeyValuePair<string, Action>("FAMILY_ELEM_SUBCATEGORY=InvalidElementId", () =>
+                {
+                    Parameter p = form.get_Parameter(BuiltInParameter.FAMILY_ELEM_SUBCATEGORY);
+                    if (p == null) throw new Exception("形體沒有 FAMILY_ELEM_SUBCATEGORY 參數");
+                    if (p.IsReadOnly) throw new Exception("FAMILY_ELEM_SUBCATEGORY 參數為唯讀");
+                    if (!p.Set(ElementId.InvalidElementId)) throw new Exception("Parameter.Set 回傳 false");
+                }),
+                new KeyValuePair<string, Action>("Subcategory=null", () => { form.Subcategory = null; }),
+                new KeyValuePair<string, Action>("Subcategory=familyCategory", () => { form.Subcategory = famCat; }),
+            };
+
+            var tried = new List<string>();
+            foreach (var a in attempts)
+            {
+                using (var st = new SubTransaction(doc))
+                {
+                    st.Start();
+                    try
+                    {
+                        a.Value();
+                        string after = RfaFormSubcategoryName(doc, form);
+                        if (after == null)
+                        {
+                            st.Commit();
+                            return a.Key;
+                        }
+                        tried.Add($"{a.Key}：未報錯，但讀回仍為「{after}」");
+                    }
+                    catch (Exception ex)
+                    {
+                        tried.Add($"{a.Key}：{ex.Message}");
+                    }
+                    if (st.HasStarted() && !st.HasEnded()) st.RollBack();
+                }
+            }
+            throw new Exception($"清除子類別失敗，已嘗試：{string.Join("；", tried)}");
+        }
+
         /// <summary>族群類別的子類別（依名稱排序）</summary>
         private static List<Category> RfaFamilySubcategories(Document doc)
         {
@@ -446,6 +495,7 @@ namespace RevitMCP.Core
             var errors = new List<object>();
             var warnings = new List<string>();
             object subResult = null;
+            int clearedCount = 0;
 
             using (var t = new Transaction(doc, "MCP: rfa_set_form_visibility"))
             {
@@ -504,11 +554,14 @@ namespace RevitMCP.Core
                         st.Start();
                         try
                         {
-                            if (hasSub)
+                            string clearMethod = null;
+                            if (clearSub)
                             {
-                                // API 說明：Subcategory 只能設為族群類別本身或其子類別；清除 = 設回族群類別
-                                Category assign = clearSub ? famCat : targetSub;
-                                try { form.Subcategory = assign; }
+                                clearMethod = RfaClearFormSubcategory(doc, form, famCat);
+                            }
+                            else if (hasSub)
+                            {
+                                try { form.Subcategory = targetSub; }
                                 catch (Exception ex) { throw new Exception($"指定子類別失敗：{ex.Message}"); }
                             }
 
@@ -539,6 +592,11 @@ namespace RevitMCP.Core
                             if (clearSub && actualSub != null)
                                 warnings.Add($"id {rawId}：清除子類別後讀回仍為「{actualSub}」");
 
+                            if (clearMethod == "alreadyClear")
+                                warnings.Add($"id {rawId}：形體原本就沒有指定子類別，未變更");
+                            else if (clearMethod != null && actualSub == null)
+                                clearedCount++;
+
                             updated.Add(new
                             {
                                 id = rawId,
@@ -546,6 +604,7 @@ namespace RevitMCP.Core
                                 isSolid = form.IsSolid,
                                 subcategory = actualSub,
                                 visibility = readBack,
+                                clearMethod,
                             });
                         }
                         catch (Exception ex)
@@ -575,7 +634,7 @@ namespace RevitMCP.Core
             return new
             {
                 subcategory = subResult,
-                subcategoryCleared = clearSub,
+                subcategoryCleared = clearSub && clearedCount > 0,
                 updated,
                 errors,
                 availableSubcategories = RfaFamilySubcategories(doc).Select(c => c.Name).ToList(),
