@@ -192,6 +192,8 @@ namespace RevitMCP.Core
             Dimension dim;
             using (var t = new Transaction(doc, "MCP: rfa_create_dimension"))
             {
+                // Error（例如過度約束）時靜默復原，不跳 Revit 對話框
+                var failures = RfaUseRollbackOnError(t);
                 t.Start();
                 dim = doc.FamilyCreate.NewDimension(view, Line.CreateBound(a, b), refs);
                 if (dim == null) throw new Exception("建立尺寸失敗（Revit 回傳 null）");
@@ -208,7 +210,8 @@ namespace RevitMCP.Core
                     try { dim.AreSegmentsEqual = true; }
                     catch (Exception ex) { warnings.Add($"設定 EQ 失敗：{ex.Message}"); }
                 }
-                t.Commit();
+                if (t.Commit() != TransactionStatus.Committed)
+                    throw new Exception($"Revit 拒絕了尺寸或其標籤（交易被復原，可能是過度約束）{RfaFailureText(failures)}");
             }
 
             return new
@@ -498,9 +501,8 @@ namespace RevitMCP.Core
                 {
                     using (var t = new Transaction(doc, "MCP: 掃掠斷面直徑標籤"))
                     {
-                        var fho = t.GetFailureHandlingOptions();
-                        fho.SetFailuresPreprocessor(new SilentFailuresPreprocessor());
-                        t.SetFailureHandlingOptions(fho);
+                        // Error 時靜默復原，不跳 Revit 對話框
+                        var failures = RfaUseRollbackOnError(t);
                         t.Start();
                         var arcs = RfaProfileArcs(doc, sweep);
                         if (arcs.Count == 0) throw new Exception("斷面草圖裡找不到圓弧");
@@ -513,7 +515,7 @@ namespace RevitMCP.Core
                             dd.FamilyLabel = diaFp;
                             dims.Add(new { id = dd.Id.GetIdValue(), view = view.Name, label = diaParam });
                         }
-                        if (t.Commit() != TransactionStatus.Committed) throw new Exception("交易被復原");
+                        if (t.Commit() != TransactionStatus.Committed) throw new Exception($"交易被復原{RfaFailureText(failures)}");
                     }
                     flex = RfaFlexCheckSweepDiameter(doc, sweep, diaFp);
                 }
@@ -544,25 +546,24 @@ namespace RevitMCP.Core
                 .Where(ce => ce.GeometryCurve is Arc).ToList();
         }
 
-        /// <summary>暫時把管徑 +10 mm，檢查斷面每段圓弧半徑是否等於參數的一半，然後復原</summary>
+        /// <summary>
+        /// 暫時把管徑 +10 mm（以 RfaRollbackOnErrorPreprocessor 提交，約束無法滿足時靜默復原、不跳對話框），
+        /// 檢查斷面每段圓弧半徑是否等於參數的一半，最後整個試驗一定復原（見 RfaRunFlexTrial）
+        /// </summary>
         private static string RfaFlexCheckSweepDiameter(Document doc, Sweep sweep, FamilyParameter diaFp)
         {
             FamilyManager fm = doc.FamilyManager;
             if (!string.IsNullOrEmpty(diaFp.Formula)) return "skipped（管徑參數由公式驅動）";
-            using (var t = new Transaction(doc, "MCP: 管徑撓曲自檢"))
-            {
-                var fho = t.GetFailureHandlingOptions();
-                fho.SetFailuresPreprocessor(new SilentFailuresPreprocessor());
-                t.SetFailureHandlingOptions(fho);
-                t.Start();
-                double v = (fm.CurrentType.AsDouble(diaFp) ?? 0) + RfaMm(10);
-                fm.Set(diaFp, v);
-                doc.Regenerate();
-                var bad = RfaProfileArcs(doc, sweep).Select(ce => ((Arc)ce.GeometryCurve).Radius)
-                    .Where(r => Math.Abs(r - v / 2) > RfaMm(0.1)).Select(r => RfaToMm(r * 2)).ToList();
-                t.RollBack();
-                return bad.Count == 0 ? "OK" : $"FAILED：斷面直徑 {string.Join(",", bad)} ≠ {RfaToMm(v)}";
-            }
+            if (fm.CurrentType == null) return "skipped（沒有目前類型）";
+            double v = (fm.CurrentType.AsDouble(diaFp) ?? 0) + RfaMm(10);
+            return RfaRunFlexTrial(doc, "MCP: 管徑撓曲自檢",
+                () => fm.Set(diaFp, v),
+                () =>
+                {
+                    var bad = RfaProfileArcs(doc, sweep).Select(ce => ((Arc)ce.GeometryCurve).Radius)
+                        .Where(r => Math.Abs(r - v / 2) > RfaMm(0.1)).Select(r => RfaToMm(r * 2)).ToList();
+                    return bad.Count == 0 ? "OK" : $"FAILED：斷面直徑 {string.Join(",", bad)} ≠ {RfaToMm(v)}";
+                });
         }
 
         #endregion

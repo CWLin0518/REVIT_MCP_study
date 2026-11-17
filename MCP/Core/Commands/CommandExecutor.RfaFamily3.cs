@@ -194,9 +194,8 @@ namespace RevitMCP.Core
             ModelCurve mc;
             using (var t = new Transaction(doc, "MCP: rfa_create_reference_line"))
             {
-                var fho = t.GetFailureHandlingOptions();
-                fho.SetFailuresPreprocessor(new SilentFailuresPreprocessor());
-                t.SetFailureHandlingOptions(fho);
+                // Error（例如約束過度）時靜默復原，不跳 Revit 對話框
+                var failures = RfaUseRollbackOnError(t);
                 t.Start();
 
                 SketchPlane sp = SketchPlane.Create(doc, hostRp.Id);
@@ -229,7 +228,7 @@ namespace RevitMCP.Core
                 }
 
                 if (t.Commit() != TransactionStatus.Committed)
-                    throw new Exception("Revit 拒絕了參考線或其約束（交易被復原，可能是過度約束）");
+                    throw new Exception($"Revit 拒絕了參考線或其約束（交易被復原，可能是過度約束）{RfaFailureText(failures)}");
             }
 
             Curve fin = mc.GeometryCurve;

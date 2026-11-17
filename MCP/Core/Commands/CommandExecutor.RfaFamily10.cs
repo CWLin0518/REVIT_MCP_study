@@ -244,9 +244,8 @@ namespace RevitMCP.Core
             Dimension dim;
             using (var t = new Transaction(doc, "MCP: rfa_create_dimension（角度）"))
             {
-                var fho = t.GetFailureHandlingOptions();
-                fho.SetFailuresPreprocessor(new SilentFailuresPreprocessor());
-                t.SetFailureHandlingOptions(fho);
+                // Error（例如過度約束）時靜默復原，不跳 Revit 對話框
+                var failures = RfaUseRollbackOnError(t);
                 t.Start();
 
                 // 平面圖看不到較高的參考線就無法標註
@@ -285,7 +284,7 @@ namespace RevitMCP.Core
                 }
 
                 if (t.Commit() != TransactionStatus.Committed)
-                    throw new Exception("Revit 拒絕了角度尺寸或其標籤（交易被復原，可能是過度約束）");
+                    throw new Exception($"Revit 拒絕了角度尺寸或其標籤（交易被復原，可能是過度約束）{RfaFailureText(failures)}");
             }
 
             double? readBack = dim.Value;
@@ -318,7 +317,10 @@ namespace RevitMCP.Core
             };
         }
 
-        /// <summary>暫時把角度參數 +5°，Regenerate 後重量兩參考夾角，必定 RollBack</summary>
+        /// <summary>
+        /// 暫時把角度參數 +5°（以 RfaRollbackOnErrorPreprocessor 提交，約束無法滿足時靜默復原、不跳對話框），
+        /// 重量兩參考夾角，最後整個試驗一定復原（見 RfaRunFlexTrial）
+        /// </summary>
         private static string RfaFlexCheckAngle(Document doc, FamilyParameter fp, List<RfaAngularRef> refs,
                                                 View view, XYZ viewDir, XYZ[] dirs0, bool supplementary)
         {
@@ -327,32 +329,18 @@ namespace RevitMCP.Core
             if (fp.IsReporting) return "skipped（報告參數）";
             if (fm.CurrentType == null) return "skipped（沒有目前類型）";
 
-            var t = new Transaction(doc, "MCP: 角度撓曲自檢");
-            try
-            {
-                var fho = t.GetFailureHandlingOptions();
-                fho.SetFailuresPreprocessor(new SilentFailuresPreprocessor());
-                t.SetFailureHandlingOptions(fho);
-                t.Start();
-                double v = (fm.CurrentType.AsDouble(fp) ?? 0) + 5.0 * Math.PI / 180.0;
-                fm.Set(fp, v);
-                doc.Regenerate();
-                RfaAngularTrace(refs[0], viewDir, view, dirs0[0], out _, out XYZ d0);
-                RfaAngularTrace(refs[1], viewDir, view, dirs0[1], out _, out XYZ d1);
-                double got = d0.AngleTo(supplementary ? d1.Negate() : d1);
-                return Math.Abs(got - v) <= RfaAngleTolRad
-                    ? "OK"
-                    : $"FAILED：參數改為 {RfaRadToDeg(v)}° 後，兩參考夾角是 {RfaRadToDeg(got)}°（幾何沒有跟著參數轉動）";
-            }
-            catch (Exception ex)
-            {
-                return $"FAILED：{ex.Message}";
-            }
-            finally
-            {
-                if (t.HasStarted() && !t.HasEnded()) t.RollBack();
-                t.Dispose();
-            }
+            double v = (fm.CurrentType.AsDouble(fp) ?? 0) + 5.0 * Math.PI / 180.0;
+            return RfaRunFlexTrial(doc, "MCP: 角度撓曲自檢",
+                () => fm.Set(fp, v),
+                () =>
+                {
+                    RfaAngularTrace(refs[0], viewDir, view, dirs0[0], out _, out XYZ d0);
+                    RfaAngularTrace(refs[1], viewDir, view, dirs0[1], out _, out XYZ d1);
+                    double got = d0.AngleTo(supplementary ? d1.Negate() : d1);
+                    return Math.Abs(got - v) <= RfaAngleTolRad
+                        ? "OK"
+                        : $"FAILED：參數改為 {RfaRadToDeg(v)}° 後，兩參考夾角是 {RfaRadToDeg(got)}°（幾何沒有跟著參數轉動）";
+                });
         }
 
         #endregion

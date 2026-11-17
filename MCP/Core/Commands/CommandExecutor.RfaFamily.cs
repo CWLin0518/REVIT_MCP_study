@@ -258,6 +258,67 @@ namespace RevitMCP.Core
             }
         }
 
+        /// <summary>為交易套用 RfaRollbackOnErrorPreprocessor（交易尚未 Start 前呼叫），回傳該預處理器以讀取錯誤</summary>
+        private static RfaRollbackOnErrorPreprocessor RfaUseRollbackOnError(Transaction t)
+        {
+            var failures = new RfaRollbackOnErrorPreprocessor();
+            var fho = t.GetFailureHandlingOptions();
+            fho.SetFailuresPreprocessor(failures);
+            fho.SetClearAfterRollback(true);
+            t.SetFailureHandlingOptions(fho);
+            return failures;
+        }
+
+        /// <summary>把預處理器記錄到的 Revit 錯誤訊息組成「：訊息」字串；沒有則回傳空字串</summary>
+        private static string RfaFailureText(RfaRollbackOnErrorPreprocessor failures)
+        {
+            return failures != null && failures.Errors.Count > 0 ? "：" + string.Join("；", failures.Errors) : string.Empty;
+        }
+
+        /// <summary>
+        /// 撓曲自檢共用流程：在一個「一定復原」的交易群組內，以 RfaRollbackOnErrorPreprocessor 提交試驗值
+        /// （Revit 若判定約束無法滿足，交易靜默復原、不跳對話框，並視為撓曲失敗、附上 Revit 訊息）；
+        /// 提交成功後呼叫 measure 量測（只讀），最後整個群組 RollBack，試驗值絕不保留。
+        /// 回傳 measure 的結果，或以 "FAILED" 開頭的失敗說明。
+        /// </summary>
+        private static string RfaRunFlexTrial(Document doc, string name, Action apply, Func<string> measure)
+        {
+            using (var tg = new TransactionGroup(doc, name))
+            {
+                try
+                {
+                    tg.Start();
+                    using (var t = new Transaction(doc, name))
+                    {
+                        var failures = RfaUseRollbackOnError(t);
+                        t.Start();
+                        try
+                        {
+                            apply();
+                        }
+                        catch (Exception ex)
+                        {
+                            if (t.HasStarted() && !t.HasEnded()) t.RollBack();
+                            return $"FAILED：設定試驗值時發生錯誤：{ex.Message}";
+                        }
+                        TransactionStatus st = t.Commit();
+                        if (st != TransactionStatus.Committed || failures.Errors.Count > 0)
+                            return $"FAILED：Revit 無法套用試驗值，交易已復原（{st}）{RfaFailureText(failures)}";
+                    }
+                    return measure();
+                }
+                catch (Exception ex)
+                {
+                    return $"FAILED：{ex.Message}";
+                }
+                finally
+                {
+                    try { if (tg.HasStarted() && !tg.HasEnded()) tg.RollBack(); }
+                    catch (Exception ex) { Logger.Error($"[RfaRunFlexTrial] 交易群組「{name}」復原失敗：{ex.Message}"); }
+                }
+            }
+        }
+
         /// <summary>
         /// 比對類型中參數的實際值與要求值（長度容差 0.01 mm、角度 0.001°）。
         /// actual 為讀回的值（與 RfaReadValue 相同單位）。
