@@ -882,7 +882,8 @@ export const rfaFamilyTools: Tool[] = [
             "Locked alignments are Dimension elements in the Revit API; each item is classified as linear, angular, radial, diameter, alignment, implicit or other, and classifiedBy says how. " +
             "implicit = Revit's automatic sketch dimensions (category Automatic Sketch Dimensions): unlabelled, created and re-created by Revit's solver (ids change between calls) to hold unconstrained line ends at their distance from nearby reference planes; " +
             "they are hidden by default (count in implicitHiddenCount) because they are not authored constraints, but they explain why a free line end moves with a plane. " +
-            "Each item returns id, kind, view (owner view name, null when it has none), label (family parameter name or null), valueMm or angleDeg (null when not readable or for alignments), " +
+            "Each item returns id, kind, view (owner view name; in family documents the owner is usually unreadable, so it falls back to the single view that shows the dimension; null when none or several), " +
+            "shownInViews (names of every view that shows it, found by collecting dimensions per view; null when no view shows it), label (family parameter name or null), valueMm or angleDeg (null when not readable or for alignments), " +
             "segmentsMm for multi-segment dimensions, isLocked, areSegmentsEqual (EQ), and references (elementId, elementKind such as ReferencePlane, ReferenceLine, Extrusion, Blend, Sweep, Revolution, SweptBlend, SymbolicCurve, name for reference planes, referenceType, stableRepresentation). " +
             "A field that cannot be read is null instead of failing the call. Also returns total, counts by kind and labelledCount. " +
             "Use it before editing an existing family: find what a form or reference plane is constrained by, then rebuild with rfa_delete_elements and the rfa_create_* tools.",

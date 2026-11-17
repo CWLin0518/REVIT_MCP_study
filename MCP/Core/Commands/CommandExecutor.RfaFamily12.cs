@@ -135,8 +135,33 @@ namespace RevitMCP.Core
         /// 描述一個尺寸／對齊約束。每個欄位各自 try/catch，讀不到就是 null。
         /// kind、label、referencedIds 另外以 out 回傳，供篩選與刪除報告使用。
         /// </summary>
+        /// <summary>
+        /// 尺寸 id → 實際顯示它的視圖。實機觀察（Revit 2027 族群檔）：在指定視圖建立的帶標籤尺寸，
+        /// OwnerViewId 與 Dimension.View 都讀不到值，所以改以「每個視圖收集得到哪些尺寸」反查。
+        /// </summary>
+        private static Dictionary<IdType, List<View>> RfaDimensionViewMap(Document doc)
+        {
+            var map = new Dictionary<IdType, List<View>>();
+            foreach (View v in new FilteredElementCollector(doc).OfClass(typeof(View)).Cast<View>())
+            {
+                if (RfaSafe(() => v.IsTemplate)) continue;
+                var vt = RfaSafe(() => v.ViewType);
+                if (vt == ViewType.ProjectBrowser || vt == ViewType.SystemBrowser || vt == ViewType.Internal || vt == ViewType.Undefined) continue;
+                List<ElementId> ids = RfaSafe(() => new FilteredElementCollector(doc, v.Id).OfClass(typeof(Dimension)).ToElementIds().ToList());
+                if (ids == null) continue;
+                foreach (ElementId id in ids)
+                {
+                    IdType key = id.GetIdValue();
+                    if (!map.TryGetValue(key, out var list)) map[key] = list = new List<View>();
+                    list.Add(v);
+                }
+            }
+            return map;
+        }
+
         private static Dictionary<string, object> RfaDescribeDimension(Document doc, Dimension dim,
-            out string kind, out string label, out HashSet<IdType> referencedIds)
+            out string kind, out string label, out HashSet<IdType> referencedIds,
+            Dictionary<IdType, List<View>> viewMap = null)
         {
             kind = RfaDimensionKind(dim, out string classifiedBy);
             string k = kind;
@@ -146,8 +171,13 @@ namespace RevitMCP.Core
 
             ElementId viewId = RfaSafe(() => dim.OwnerViewId);
             View view = viewId != null && viewId != ElementId.InvalidElementId ? RfaSafe(() => doc.GetElement(viewId) as View) : null;
-            // 實機觀察（Revit 2027 族群檔）：在指定視圖建立的尺寸 OwnerViewId 也讀到無效值，改讀 Dimension.View
             if (view == null) view = RfaSafe(() => dim.View);
+            List<string> shownIn = null;
+            if (viewMap != null && viewMap.TryGetValue(dim.Id.GetIdValue(), out var views))
+            {
+                shownIn = views.Select(v => RfaSafe(() => v.Name)).ToList();
+                if (view == null && views.Count == 1) view = views[0];
+            }
 
             int segCount = RfaSafe(() => dim.NumberOfSegments);
             double? value = null;
@@ -186,6 +216,7 @@ namespace RevitMCP.Core
                 ["classifiedBy"] = classifiedBy,
                 ["view"] = view != null ? RfaSafe(() => view.Name) : null,
                 ["viewId"] = view?.Id.GetIdValue(),
+                ["shownInViews"] = shownIn,
                 ["label"] = label,
                 ["valueMm"] = k == "angular" ? null : value,
                 ["angleDeg"] = k == "angular" ? value : null,
@@ -289,13 +320,14 @@ namespace RevitMCP.Core
             var items = new List<Dictionary<string, object>>();
             var errors = new List<object>();
             int implicitHidden = 0;
+            var viewMap = RfaDimensionViewMap(doc);
             foreach (Element el in new FilteredElementCollector(doc).OfClass(typeof(Dimension)))
             {
                 var dim = el as Dimension;
                 if (dim == null) continue;
                 try
                 {
-                    var info = RfaDescribeDimension(doc, dim, out string kind, out string label, out HashSet<IdType> refIds);
+                    var info = RfaDescribeDimension(doc, dim, out string kind, out string label, out HashSet<IdType> refIds, viewMap);
                     if (kind == "implicit" && !includeImplicit)
                     {
                         if (filterIds == null || refIds.Overlaps(filterIds)) implicitHidden++;
