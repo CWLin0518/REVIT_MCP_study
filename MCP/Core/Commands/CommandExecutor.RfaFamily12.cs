@@ -146,6 +146,8 @@ namespace RevitMCP.Core
 
             ElementId viewId = RfaSafe(() => dim.OwnerViewId);
             View view = viewId != null && viewId != ElementId.InvalidElementId ? RfaSafe(() => doc.GetElement(viewId) as View) : null;
+            // 實機觀察（Revit 2027 族群檔）：在指定視圖建立的尺寸 OwnerViewId 也讀到無效值，改讀 Dimension.View
+            if (view == null) view = RfaSafe(() => dim.View);
 
             int segCount = RfaSafe(() => dim.NumberOfSegments);
             double? value = null;
