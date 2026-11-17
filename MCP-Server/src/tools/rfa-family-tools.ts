@@ -604,7 +604,7 @@ export const rfaFamilyTools: Tool[] = [
                             },
                             transparency: { type: "integer", minimum: 0, maximum: 100, description: "Shading transparency 0-100." },
                             materialClass: { type: "string", description: "Material class, e.g. \"Metal\", \"Glass\", \"Wood\"." },
-                            duplicateFrom: { type: "string", description: "Name of an existing material in the family document to duplicate instead of creating a blank one; the other fields are applied on top." },
+                            duplicateFrom: { type: "string", description: "Name of an existing material in the family document to duplicate instead of creating a blank one; the other fields are applied on top. The copy shares the source's appearance (render) asset, so editing that asset in Revit changes both; shading color, transparency and class stay independent." },
                             updateExisting: { type: "boolean", description: "When a material with this name already exists: false (default) = skip it; true = apply color/transparency/materialClass to it.", default: false },
                         },
                         required: ["name"],
