@@ -50,11 +50,36 @@ namespace RevitMCP.Core
             return null;
         }
 
-        /// <summary>尺寸種類：linear / angular / radial / diameter / alignment / other</summary>
+        /// <summary>
+        /// 判斷一個 Dimension 是否為 Revit 自動產生的「自動草圖尺寸」（Automatic Sketch Dimensions，OST_WeakDims）。
+        /// 實機觀察（Revit 2027）：參考線／符號線有未約束的端點時，Revit 求解器會自己建立這類尺寸
+        /// （不帶標籤、0 mm 或與附近參考平面的距離），每次再生都可能刪除重建、換新 id。
+        /// 它們不是使用者建立的約束，但會讓未約束的端點跟著附近的參考平面移動。
+        /// 回傳判定依據字串；不是時回傳 null。
+        /// </summary>
+        private static string RfaImplicitEvidence(Dimension dim)
+        {
+            IdType weakCat = (IdType)(int)BuiltInCategory.OST_WeakDims;
+            Category cat = RfaSafe(() => dim.Category);
+            if (cat != null && RfaSafe(() => cat.Id.GetIdValue()) == weakCat)
+                return "category=OST_WeakDims";
+            // 後備：實機看到的類別是「Dimensions: Automatic Sketch Dimensions」——尺寸類別底下的子類別；
+            // 使用者建立的尺寸／標籤尺寸的類別是「Dimensions」本身（沒有父類別）
+            IdType dimsCat = (IdType)(int)BuiltInCategory.OST_Dimensions;
+            Category parent = cat == null ? null : RfaSafe(() => cat.Parent);
+            if (parent != null && RfaSafe(() => parent.Id.GetIdValue()) == dimsCat)
+                return $"category=subcategory of Dimensions ({RfaSafe(() => cat.Name)})";
+            return null;
+        }
+
+        /// <summary>尺寸種類：linear / angular / radial / diameter / alignment / implicit / other</summary>
         private static string RfaDimensionKind(Dimension dim, out string classifiedBy)
         {
             classifiedBy = RfaAlignmentEvidence(dim);
             if (classifiedBy != null) return "alignment";
+
+            classifiedBy = RfaImplicitEvidence(dim);
+            if (classifiedBy != null) return "implicit";
 
             DimensionShape? shape = RfaSafe<DimensionShape?>(() => dim.DimensionShape, null);
             classifiedBy = shape.HasValue ? "DimensionShape=" + shape.Value : "unknownShape";
@@ -256,8 +281,12 @@ namespace RevitMCP.Core
             bool includeUnlabelled = parameters["includeUnlabelled"]?.Type == JTokenType.Boolean
                 ? parameters["includeUnlabelled"].Value<bool>() : true;
 
+            bool includeImplicit = parameters["includeImplicit"]?.Type == JTokenType.Boolean
+                && parameters["includeImplicit"].Value<bool>();
+
             var items = new List<Dictionary<string, object>>();
             var errors = new List<object>();
+            int implicitHidden = 0;
             foreach (Element el in new FilteredElementCollector(doc).OfClass(typeof(Dimension)))
             {
                 var dim = el as Dimension;
@@ -265,6 +294,11 @@ namespace RevitMCP.Core
                 try
                 {
                     var info = RfaDescribeDimension(doc, dim, out string kind, out string label, out HashSet<IdType> refIds);
+                    if (kind == "implicit" && !includeImplicit)
+                    {
+                        if (filterIds == null || refIds.Overlaps(filterIds)) implicitHidden++;
+                        continue;
+                    }
                     bool isAlignment = kind == "alignment";
                     if (kinds != null && !kinds.Contains(isAlignment ? "alignment" : "dimension")) continue;
                     if (!includeUnlabelled && label == null) continue;
@@ -285,6 +319,7 @@ namespace RevitMCP.Core
                 total = items.Count,
                 counts,
                 labelledCount = items.Count(i => i["label"] != null),
+                implicitHiddenCount = implicitHidden,
                 constraints = items,
                 errors,
             };

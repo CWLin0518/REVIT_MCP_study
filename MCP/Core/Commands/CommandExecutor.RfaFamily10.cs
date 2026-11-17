@@ -43,6 +43,32 @@ namespace RevitMCP.Core
 
         private const double RfaAngleTolRad = 0.01 * Math.PI / 180.0;
 
+        /// <summary>
+        /// 參考了 refIds 中「每一個」元素的帶標籤尺寸，回傳「#id 標籤」描述清單。
+        /// 用來在角度自檢失敗時分辨原因：同一對參考上已有帶標籤的尺寸 → 過度約束。
+        /// </summary>
+        private static List<string> RfaLabelledDimensionsOn(Document doc, HashSet<IdType> refIds)
+        {
+            var found = new List<string>();
+            foreach (Element el in new FilteredElementCollector(doc).OfClass(typeof(Dimension)))
+            {
+                var dim = el as Dimension;
+                FamilyParameter fp = dim == null ? null : RfaSafe(() => dim.FamilyLabel);
+                if (fp == null) continue;
+                var ids = new HashSet<IdType>();
+                ReferenceArray ra = RfaSafe(() => dim.References);
+                if (ra == null) continue;
+                foreach (Reference r in ra)
+                {
+                    ElementId eid = r == null ? null : RfaSafe(() => r.ElementId);
+                    if (eid != null && eid != ElementId.InvalidElementId) ids.Add(eid.GetIdValue());
+                }
+                if (refIds.IsSubsetOf(ids))
+                    found.Add($"#{dim.Id.GetIdValue()} 標籤「{RfaSafe(() => fp.Definition.Name)}」");
+            }
+            return found;
+        }
+
         private static double RfaRadToDeg(double rad) => Math.Round(rad * 180.0 / Math.PI, 6);
 
         /// <summary>
@@ -224,8 +250,15 @@ namespace RevitMCP.Core
                 if (flexFailed && !keepIfFlexFails)
                 {
                     tg.RollBack();
+                    // 同一對參考上已有帶標籤的尺寸 → 原因是過度約束，不是缺少旋轉約束
+                    var refIds = new HashSet<IdType>(refs.Select(r => r.Kind == "referenceLine" ? r.Id : r.Plane.Id.GetIdValue()));
+                    var clashing = RfaLabelledDimensionsOn(doc, refIds);
+                    if (clashing.Count > 0)
+                        throw new Exception(
+                            $"已復原：帶標籤「{label}」的角度尺寸未通過撓曲自檢（{flex}）。原因是過度約束：同一對參考已被帶標籤的尺寸控制（{string.Join("、", clashing)}），" +
+                            "兩個標籤會互相衝突。請改用既有的參數（或用公式讓「" + label + "」等於它），或先用 rfa_delete_elements 刪掉既有的尺寸再標註。");
                     throw new Exception(
-                        $"已復原：帶標籤「{label}」的角度尺寸未通過撓曲自檢（{flex}）。兩個參考沒有被約束成可繞頂點旋轉，保留它會讓之後改參數時 Revit 跳出「Constraints are not satisfied」。" +
+                        $"已復原：帶標籤「{label}」的角度尺寸未通過撓曲自檢（{flex}）。兩個參考沒有被約束成可繞頂點旋轉（或其他約束擋住了旋轉），保留它會讓之後改參數時 Revit 跳出「Constraints are not satisfied」。" +
                         "可運作的做法：先用 rfa_create_reference_line 以 constraints 的 start 把兩條線的起點分別鎖到兩個在頂點相交的參考平面，" +
                         "再以 curve 約束把其中一條線鎖到一個參考平面，最後再標註並加 label。若確定要保留未通過的尺寸，可傳 keepIfFlexFails: true。");
                 }

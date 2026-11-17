@@ -341,7 +341,9 @@ export const rfaFamilyTools: Tool[] = [
             "Reference lines are the rig for parametric pipes and bars: constrain the line here (align, or dimension with a length parameter), then sweep a profile along it " +
             "with rfa_create_sweep pathReferenceLineIds. This works where constraining sketch curves does not (family documents have no sketch-edit API). " +
             "The line moves with hostPlane along its normal; use constraints for the in-plane directions. Targets: curve (straight line parallel to the plane), start, end, center (arc). " +
-            "Arcs can also carry radiusParameter. Every point must already sit where the constraint says (on the plane, or at the parameter's current distance).",
+            "Arcs can also carry radiusParameter. Every point must already sit where the constraint says (on the plane, or at the parameter's current distance). " +
+            "An end left unconstrained is not free: Revit holds it with automatic sketch dimensions to nearby reference planes, so it can move when such a plane moves " +
+            "(observed: a free end kept its 300 mm distance to a plane that a length parameter moved). Constrain both ends when the length matters.",
         inputSchema: {
             type: "object",
             properties: {
@@ -387,7 +389,8 @@ export const rfaFamilyTools: Tool[] = [
             "Create a symbolic line (straight line or 3-point arc) in the active family document, and constrain it to reference planes. " +
             "Symbolic lines are the family's 2D representation (door elevation swing, plan swing arc); they show only in views parallel to hostPlane. " +
             "Constraints work like rfa_create_reference_line: align a part to a plane, or dimension it with a length parameter, so the line follows the family parameters. " +
-            "Constraints on an existing symbolic line cannot be re-hosted through the API — to change what a line follows, delete it (rfa_delete_elements) and redraw it here.",
+            "Constraints on an existing symbolic line cannot be re-hosted through the API — to change what a line follows, delete it (rfa_delete_elements) and redraw it here. " +
+            "As with reference lines, an unconstrained end is held by Revit's automatic sketch dimensions to nearby planes and may move with them; constrain both ends when it matters.",
         inputSchema: {
             type: "object",
             properties: {
@@ -876,7 +879,9 @@ export const rfaFamilyTools: Tool[] = [
         name: "rfa_list_constraints",
         description:
             "List dimensions and alignments in the active family. Read-only: opens no transaction and changes nothing. " +
-            "Locked alignments are Dimension elements in the Revit API; each item is classified as linear, angular, radial, diameter, alignment or other, and classifiedBy says how. " +
+            "Locked alignments are Dimension elements in the Revit API; each item is classified as linear, angular, radial, diameter, alignment, implicit or other, and classifiedBy says how. " +
+            "implicit = Revit's automatic sketch dimensions (category Automatic Sketch Dimensions): unlabelled, created and re-created by Revit's solver (ids change between calls) to hold unconstrained line ends at their distance from nearby reference planes; " +
+            "they are hidden by default (count in implicitHiddenCount) because they are not authored constraints, but they explain why a free line end moves with a plane. " +
             "Each item returns id, kind, view (owner view name, null when it has none), label (family parameter name or null), valueMm or angleDeg (null when not readable or for alignments), " +
             "segmentsMm for multi-segment dimensions, isLocked, areSegmentsEqual (EQ), and references (elementId, elementKind such as ReferencePlane, ReferenceLine, Extrusion, Blend, Sweep, Revolution, SweptBlend, SymbolicCurve, name for reference planes, referenceType, stableRepresentation). " +
             "A field that cannot be read is null instead of failing the call. Also returns total, counts by kind and labelledCount. " +
@@ -898,6 +903,11 @@ export const rfaFamilyTools: Tool[] = [
                     type: "boolean",
                     description: "Include dimensions without a parameter label (and alignments, which never have one). Default true.",
                     default: true,
+                },
+                includeImplicit: {
+                    type: "boolean",
+                    description: "Include Revit's automatic sketch dimensions (kind implicit). Default false: they are only counted in implicitHiddenCount.",
+                    default: false,
                 },
             },
         },
