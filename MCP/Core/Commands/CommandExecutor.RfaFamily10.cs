@@ -210,6 +210,37 @@ namespace RevitMCP.Core
             XYZ yAxis = viewDir.CrossProduct(start).Normalize();
             Arc arc = Arc.Create(Plane.CreateByOriginAndBasis(vertex, start, yAxis), arcR, 0, theta);
 
+            bool keepIfFlexFails = parameters["keepIfFlexFails"]?.Type == JTokenType.Boolean
+                                   && parameters["keepIfFlexFails"].Value<bool>();
+
+            // 交易群組：撓曲自檢失敗時，整個建立（含視圖範圍調整）一併復原
+            using (var tg = new TransactionGroup(doc, "MCP: rfa_create_dimension（角度）"))
+            {
+                tg.Start();
+                object result = RfaCreateAngularDimensionCore(doc, fm, refs, view, viewDir, dirs, vertex, arc, theta,
+                    supplementary, label, fp, arcR, firstLine, warnings, out string flex);
+
+                bool flexFailed = flex != null && flex.StartsWith("FAILED", StringComparison.Ordinal);
+                if (flexFailed && !keepIfFlexFails)
+                {
+                    tg.RollBack();
+                    throw new Exception(
+                        $"已復原：帶標籤「{label}」的角度尺寸未通過撓曲自檢（{flex}）。兩個參考沒有被約束成可繞頂點旋轉，保留它會讓之後改參數時 Revit 跳出「Constraints are not satisfied」。" +
+                        "可運作的做法：先用 rfa_create_reference_line 以 constraints 的 start 把兩條線的起點分別鎖到兩個在頂點相交的參考平面，" +
+                        "再以 curve 約束把其中一條線鎖到一個參考平面，最後再標註並加 label。若確定要保留未通過的尺寸，可傳 keepIfFlexFails: true。");
+                }
+                if (flexFailed)
+                    warnings.Add("撓曲自檢未通過但依 keepIfFlexFails 保留了帶標籤的角度尺寸；之後修改此參數時 Revit 可能跳出「Constraints are not satisfied」");
+                tg.Assimilate();
+                return result;
+            }
+        }
+
+        /// <summary>建立角度尺寸（含標籤）並執行撓曲自檢；由 RfaCreateAngularDimension 在交易群組內呼叫</summary>
+        private object RfaCreateAngularDimensionCore(Document doc, FamilyManager fm, List<RfaAngularRef> refs, View view, XYZ viewDir,
+            XYZ[] dirs, XYZ vertex, Arc arc, double theta, bool supplementary, string label, FamilyParameter fp, double arcR,
+            RfaAngularRef firstLine, List<string> warnings, out string flex)
+        {
             Dimension dim;
             using (var t = new Transaction(doc, "MCP: rfa_create_dimension（角度）"))
             {
@@ -265,7 +296,7 @@ namespace RevitMCP.Core
                 warnings.Add($"尺寸讀回 {angleDeg}°，與事前計算的 {RfaRadToDeg(theta)}° 不同（Revit 可能標到了另一個扇區；可改 supplementary 重試）");
 
             // ── 撓曲自檢：角度 +5°，重算兩參考夾角，然後一定復原 ──
-            string flex = null;
+            flex = null;
             if (fp != null) flex = RfaFlexCheckAngle(doc, fp, refs, view, viewDir, dirs, supplementary);
 
             return new
