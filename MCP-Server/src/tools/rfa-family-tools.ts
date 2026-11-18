@@ -390,11 +390,30 @@ export const rfaFamilyTools: Tool[] = [
             "Symbolic lines are the family's 2D representation (door elevation swing, plan swing arc); they show only in views parallel to hostPlane. " +
             "Constraints work like rfa_create_reference_line: align a part to a plane, or dimension it with a length parameter, so the line follows the family parameters. " +
             "Constraints on an existing symbolic line cannot be re-hosted through the API — to change what a line follows, delete it (rfa_delete_elements) and redraw it here. " +
-            "As with reference lines, an unconstrained end is held by Revit's automatic sketch dimensions to nearby planes and may move with them; constrain both ends when it matters.",
+            "As with reference lines, an unconstrained end is held by Revit's automatic sketch dimensions to nearby planes and may move with them; constrain both ends when it matters. " +
+            "Batch form: pass `polylines` instead of line/arc to draw many outlines (e.g. a furniture plan) in ONE call and ONE transaction — each consecutive point pair becomes one straight symbolic line on hostPlane; " +
+            "segments shorter than max(0.5 mm, Revit's short-curve tolerance) are skipped and counted; at most 2000 segments per call; if any segment fails the whole batch is rolled back and the error names the polyline/segment index. " +
+            "Batch form takes no constraints and returns totalCreated, skipped, ids per polyline and the bounding box (mm) of everything drawn.",
         inputSchema: {
             type: "object",
             properties: {
                 hostPlane: { type: "string", description: "Reference plane the line lies in (its work plane), e.g. \"Interior\" for a door elevation swing." },
+                polylines: {
+                    type: "array",
+                    description: "Batch form. Mutually exclusive with line, arc and constraints. Every point must lie on hostPlane (0.5 mm tolerance). subcategory applies to all lines.",
+                    items: {
+                        type: "object",
+                        properties: {
+                            pointsMm: {
+                                type: "array",
+                                items: { type: "array", items: { type: "number" } },
+                                description: "At least 2 points, each [x, y, z] mm.",
+                            },
+                            closed: { type: "boolean", description: "Also draw last point -> first point (needs 3+ points). Default false.", default: false },
+                        },
+                        required: ["pointsMm"],
+                    },
+                },
                 line: {
                     type: "object",
                     properties: {
@@ -945,6 +964,41 @@ export const rfaFamilyTools: Tool[] = [
                 },
             },
             required: ["elementIds"],
+        },
+    },
+    {
+        name: "rfa_import_cad",
+        description:
+            "Import a CAD file into the active family document. Brings SAT, 3DM, DWG or DXF geometry into the family as an ImportInstance (non-parametric imported geometry that does not flex with family parameters), e.g. a Rhino Brep exported as SAT for a furniture family. " +
+            "filePath must be an absolute path to an existing .sat / .3dm / .dwg / .dxf. SAT must contain Brep solids/surfaces: Rhino meshes cannot be exported to SAT and must be converted to Brep first (reduce the mesh before converting; a mesh-derived Brep is heavy). " +
+            "units sets the source file units (default auto lets Revit guess; give it explicitly, e.g. centimeter for a Rhino model in cm). placement origin (default) maps the file origin to the family origin; center centres the geometry on it. " +
+            "viewName picks the view used for the import; by default a non-perspective 3D view, else a floor plan. thisViewOnly defaults to false so 3D geometry becomes part of the family (true is refused for 3D views). " +
+            "The import runs in one transaction that is rolled back on any failure (project document active, missing file, unsupported extension, Import returning false or no element). " +
+            "Returns id, elementClass, category, format, unitsUsed, placement, view, boundingBoxMm {min, max}, sizeMm [x, y, z] — compare it with the expected size to verify units — geometry (solidCount, faceCount, meshCount, curveCount, solidVolumeM3) and warnings.",
+        inputSchema: {
+            type: "object",
+            properties: {
+                filePath: { type: "string", description: "Absolute path of the .sat / .3dm / .dwg / .dxf file to import." },
+                units: {
+                    type: "string",
+                    enum: ["auto", "millimeter", "centimeter", "decimeter", "meter", "inch", "foot"],
+                    description: "Units of the source file. Default auto (Revit decides). Specify it explicitly for SAT / 3DM.",
+                    default: "auto",
+                },
+                placement: {
+                    type: "string",
+                    enum: ["origin", "center"],
+                    description: "origin = file origin on the family origin (default); center = geometry centred on the family origin.",
+                    default: "origin",
+                },
+                viewName: { type: "string", description: "Name of the family view to import into. Default: a non-perspective 3D view, else the first floor plan." },
+                thisViewOnly: {
+                    type: "boolean",
+                    description: "Import into this view only (2D DWG/DXF in a plan or elevation). Default false; must stay false for 3D views and for geometry that should be part of the family.",
+                    default: false,
+                },
+            },
+            required: ["filePath"],
         },
     },
 ];

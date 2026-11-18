@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Skills 索引（61 個）· BIM_MCP</title>
+<title>Skills 索引（63 個）· BIM_MCP</title>
 <meta property="og:title" content="RevitMCP Skills 索引：61 個編排層工作流">
 <meta property="og:description" content="61 個 Skill × 描述 × 觸發關鍵字 × 對應 Domain 表。Skill 是編排（何時/順序），Domain 是知識（法規/SOP）。從 CLAUDE.md 抽出。">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -118,9 +118,9 @@
 </nav>
 
 <header class="bim-hero">
-  <div class="bim-hero-eyebrow">SKILLS INDEX <span class="accent">61 個</span></div>
+  <div class="bim-hero-eyebrow">SKILLS INDEX <span class="accent">63 個</span></div>
   <h1 class="bim-hero-title">Skills · <span class="accent">編排層</span><br>何時觸發 / 什麼順序</h1>
-  <p class="bim-hero-sub">Skills 是<strong>編排</strong>（orchestration），不是知識本身。一個 Skill 規定「<em>什麼關鍵字觸發 / 呼叫哪些工具 / 套用哪個 Domain SOP</em>」。Skill metadata 永遠常駐於 AI Client context；body 與 Domain 被引用時才載入。本頁列 61 個 Skill 的描述、觸發關鍵字與對應 Domain。</p>
+  <p class="bim-hero-sub">Skills 是<strong>編排</strong>（orchestration），不是知識本身。一個 Skill 規定「<em>什麼關鍵字觸發 / 呼叫哪些工具 / 套用哪個 Domain SOP</em>」。Skill metadata 永遠常駐於 AI Client context；body 與 Domain 被引用時才載入。本頁列 63 個 Skill 的描述、觸發關鍵字與對應 Domain。</p>
 </header>
 
 <section data-collapse class="bim-section">
@@ -137,7 +137,7 @@
     </div>
     <div class="bim-card">
       <h4>Tool（執行）</h4>
-      <p style="font-size:13px;">原子操作（query / create / modify）。219 個 MCP tools。</p>
+      <p style="font-size:13px;">原子操作（query / create / modify）。220 個 MCP tools。</p>
     </div>
   </div>
   <p class="bim-section-desc" style="margin-top:var(--gap-md);">「<strong>不要把每個 Domain 都升級成 Skill</strong>」——這是本專案的核心架構原則。詳見 <a href="philosophy-22-propositions.html">22 命題</a>。</p>
@@ -145,11 +145,11 @@
 </section>
 
 <!-- ============================================ -->
-<!-- 61 個 Skill 列表 -->
+<!-- 63 個 Skill 列表 -->
 <!-- ============================================ -->
 <section data-collapse class="bim-section bim-anchor" id="skills">
-  <div class="bim-section-eyebrow">CATALOG · 61 個 Skill</div>
-  <h2 class="bim-section-title">61 個 Skill · 依用途分組</h2>
+  <div class="bim-section-eyebrow">CATALOG · 63 個 Skill</div>
+  <h2 class="bim-section-title">63 個 Skill · 依用途分組</h2>
 
   <div class="cat-header">A · 法規檢核（6 個）</div>
 
@@ -241,7 +241,7 @@
     </div>
   </div>
 
-  <div class="cat-header">B · 設計協作（4 個）</div>
+  <div class="cat-header">B · 設計協作（6 個）</div>
 
   <div class="skill-card">
     <div>
@@ -295,6 +295,34 @@
       <div class="skill-meta">
         <span class="trigger-tag">查詢</span><span class="trigger-tag">篩選</span><span class="trigger-tag">element query</span><span class="trigger-tag">filter</span><span class="trigger-tag">find elements</span>
         <a href="domain-index.html#element-query-workflow" class="domain-link">→ element-query-workflow</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="skill-card">
+    <div>
+      <div class="skill-name">/rhino-furniture-plan</div>
+      <div class="skill-cat">B · 設計協作</div>
+    </div>
+    <div>
+      <div class="skill-desc">讀取 Rhino 中選取的家具，開新的 Revit 家具族群，以符號線一次畫出平面外輪廓與從上方看得到的部位分界（椅墊、椅背、扶手）。</div>
+      <div class="skill-meta">
+        <span class="trigger-tag">Rhino 家具轉族群</span><span class="trigger-tag">家具平面輪廓</span><span class="trigger-tag">椅背椅墊關係線</span><span class="trigger-tag">furniture plan outline</span>
+        <a href="domain-index.html#rfa-family-authoring" class="domain-link">→ rfa-family-authoring</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="skill-card">
+    <div>
+      <div class="skill-name">/rfa-generate</div>
+      <div class="skill-cat">B · 設計協作</div>
+    </div>
+    <div>
+      <div class="skill-desc">族群生成總入口：先判斷族群樣板（類別、主體、接頭、2D/3D），再把來源模型分級為原生重建、匯入幾何或 2D 平面輪廓；網格等無法原生重建時詢問使用者，最後撓曲測試、存檔、載入專案。</div>
+      <div class="skill-meta">
+        <span class="trigger-tag">建立族群</span><span class="trigger-tag">族群樣板</span><span class="trigger-tag">網格轉族群</span><span class="trigger-tag">generate family</span>
+        <a href="domain-index.html#rfa-family-authoring" class="domain-link">→ rfa-family-authoring</a>
       </div>
     </div>
   </div>
@@ -1028,6 +1056,8 @@
       <tr><td><code>/facade-generation</code></td><td>B 設計</td><td>AI 立面面板生成</td><td>facade-generation</td></tr>
       <tr><td><code>/element-coloring</code></td><td>B 設計</td><td>依參數值上色</td><td>element-coloring-workflow</td></tr>
       <tr><td><code>/element-query</code></td><td>B 設計</td><td>三階段查詢協議</td><td>element-query-workflow</td></tr>
+      <tr><td><code>/rhino-furniture-plan</code></td><td>B 設計</td><td>Rhino 家具 → 族群平面符號線</td><td>rfa-family-authoring</td></tr>
+      <tr><td><code>/rfa-generate</code></td><td>B 設計</td><td>選樣板 → 來源分級 → 建族群</td><td>rfa-family-authoring</td></tr>
       <tr><td><code>/auto-dimension</code></td><td>C 文件</td><td>Ray-Cast / BoundingBox 標註</td><td>auto-dimension-workflow</td></tr>
       <tr><td><code>/detail-component-sync</code></td><td>C 文件</td><td>AE-numbering 編號同步</td><td>detail-component-sync</td></tr>
       <tr><td><code>/dependent-view-crop</code></td><td>C 文件</td><td>網格邊界批次裁剪</td><td>dependent-view-crop-workflow</td></tr>
@@ -1088,7 +1118,7 @@
 <!-- ============================================ -->
 <section data-collapse class="bim-section bim-anchor" id="why-not-merge">
   <div class="bim-section-eyebrow">RATIONALE · 為什麼不每個 Domain 都升級成 Skill</div>
-  <h2 class="bim-section-title">61 Skill vs 84 Domain — 為什麼數量不同？</h2>
+  <h2 class="bim-section-title">63 Skill vs 84 Domain — 為什麼數量不同？</h2>
 
   <div class="bim-grid bim-grid-2">
     <div class="bim-card bim-card-bad">
@@ -1098,7 +1128,7 @@
     </div>
     <div class="bim-card bim-card-ok">
       <h4 style="color:var(--ok);">✓ 本專案做法</h4>
-      <p>Skill = 編排（61 個 metadata 常駐）；Domain = 知識（84 markdown，被引用才載入）。</p>
+      <p>Skill = 編排（63 個 metadata 常駐）；Domain = 知識（84 markdown，被引用才載入）。</p>
       <p style="font-size:13px;color:var(--text-muted);">知識複用，編排薄層。一個防火 SOP 被三個 Skill 共享，原文只有一份。</p>
     </div>
   </div>
@@ -1126,7 +1156,7 @@
     <a href="../index.html" class="bim-footer-btn">回 BIM_MCP 首頁</a>
   </div>
   <p>BIM_MCP · reference / skills-index</p>
-  <p style="font-size:11px;color:var(--text-faint);margin-top:6px;">最後更新 2026-07-09 · 從 CLAUDE.md 抽取 61 個 Skill 與其觸發關鍵字、Domain 對應。</p>
+  <p style="font-size:11px;color:var(--text-faint);margin-top:6px;">最後更新 2026-07-09 · 從 CLAUDE.md 抽取 63 個 Skill 與其觸發關鍵字、Domain 對應。</p>
 </footer>
 
 <script src="../shared.js"></script>

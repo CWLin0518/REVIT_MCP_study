@@ -169,13 +169,23 @@ namespace RevitMCP.Core
                 doc.Regenerate();
             }
 
-            if (placement["x"] == null || placement["y"] == null || placement["z"] == null)
+            JToken hostIdToken = placement["hostId"];
+            bool hasHost = hostIdToken != null && hostIdToken.Type != JTokenType.Null;
+
+            if (placement["x"] == null || placement["y"] == null || (!hasHost && placement["z"] == null))
             {
-                throw new Exception("x / y / z 為必填（世界座標，單位 mm）。");
+                throw new Exception("x / y 為必填；未給 hostId 時 z 也必填（世界座標，單位 mm）。");
             }
 
             double xMm = placement["x"].Value<double>();
             double yMm = placement["y"].Value<double>();
+
+            if (hasHost)
+            {
+                return PlaceSingleHostedFamilyInstance(doc, symbol, index, tag, placement,
+                    hostIdToken.Value<IdType>(), xMm, yMm, out createdElementId);
+            }
+
             double zMm = placement["z"].Value<double>();
             // z 是世界座標（mm），與 get_space_centroid 回傳的座標系一致——BREAKING（2026-08-15）：
             // 舊版把這個值直接當成 NewFamilyInstance 的 point.Z（樓層偏移語意），已改為下方換算。
@@ -212,7 +222,23 @@ namespace RevitMCP.Core
             FamilyInstance instance = doc.Create.NewFamilyInstance(
                 pointFeet, symbol, level, StructuralType.NonStructural);
             createdElementId = instance.Id.GetIdValue();
+            return FinishPlacedInstance(doc, instance, index, tag, placement, requestedWorldFeet, rotationDeg, level.Name);
+        }
 
+        /// <summary>
+        /// 放置後的共同收尾（Regenerate → 旋轉 → 設參數 → 讀回落點與 BBox），一般放置與主體放置共用。
+        /// requestedWorldFeet 是讀不到 LocationPoint 時的回退值（世界座標）。
+        /// </summary>
+        private object FinishPlacedInstance(
+            Document doc,
+            FamilyInstance instance,
+            int index,
+            string tag,
+            JObject placement,
+            XYZ requestedWorldFeet,
+            double rotationDeg,
+            string levelName)
+        {
             // 2026-08-14 實測：Exhauster with Cabinet 族群放置後，未 Regenerate 就讀 LocationPoint
             // 會拿到 (0,0,0)——BoundingBox 證實元件實際位置正確，屬「轉型成功但值無意義」（Location as
             // LocationPoint 非 null，但 .Point 尚未反映新建元件的實際位置）；同批 AHU 沒有這個問題，
@@ -299,9 +325,102 @@ namespace RevitMCP.Core
                 },
                 PlacedPointSource = placedPointSource,
                 PlacedBBoxCenter = placedBBoxCenter,
-                LevelName = level.Name,
+                LevelName = levelName,
+                HostId = instance.Host != null ? (object)instance.Host.Id.GetIdValue() : null,
                 ParametersSet = parametersSet
             };
+        }
+
+        /// <summary>
+        /// 主體放置（placement 有 hostId）：以 (x, y) 作鉛直線與主體指定面（hostFace，預設 bottom）求交，
+        /// 依族群放置型式選 NewFamilyInstance overload：
+        ///   - WorkPlaneBased（面式族群）→ NewFamilyInstance(Reference face, XYZ, XYZ refDir, FamilySymbol)
+        ///   - OneLevelBasedHosted（如天花板式燈具樣板）→ NewFamilyInstance(XYZ, FamilySymbol, Element host, Level, StructuralType)
+        /// 其他放置型式直接報錯，不退回無主體放置。z 在此分支被忽略——高度由主體面決定。
+        /// 需求來源：2026-11-18 燈具以無主體方式放置時，"Elevation from Level" 與 z 都無法把燈貼到天花板底面，
+        /// 實務上燈具必須以天花板為主體才會隨天花板移動、也才會在天花平面圖正確顯示。
+        /// </summary>
+        private object PlaceSingleHostedFamilyInstance(
+            Document doc,
+            FamilySymbol symbol,
+            int index,
+            string tag,
+            JObject placement,
+            IdType hostIdValue,
+            double xMm,
+            double yMm,
+            out IdType? createdElementId)
+        {
+            createdElementId = null;
+
+            Element host = doc.GetElement(hostIdValue.ToElementId());
+            if (host == null)
+                throw new Exception($"hostId {hostIdValue} 找不到對應元素。");
+
+            HostObject hostObj = host as HostObject;
+            if (hostObj == null)
+                throw new Exception($"hostId {hostIdValue}（品類 {host.Category?.Name}）不是 HostObject（天花板／樓板／牆／屋頂），無法作為主體。");
+
+            string hostFace = placement["hostFace"]?.Value<string>();
+            string faceKey = string.IsNullOrWhiteSpace(hostFace) ? "bottom" : hostFace.Trim().ToLowerInvariant();
+            IList<Reference> faceRefs;
+            if (faceKey == "bottom")
+                faceRefs = HostObjectUtils.GetBottomFaces(hostObj);
+            else if (faceKey == "top")
+                faceRefs = HostObjectUtils.GetTopFaces(hostObj);
+            else
+                throw new Exception($"hostFace 只接受 'bottom' 或 'top'，收到 '{hostFace}'。");
+
+            BoundingBoxXYZ hostBox = host.get_BoundingBox(null);
+            if (hostBox == null)
+                throw new Exception($"hostId {hostIdValue} 讀不到 BoundingBox，無法建立垂直投射線。");
+
+            double xFeet = xMm / 304.8;
+            double yFeet = yMm / 304.8;
+            Line ray = Line.CreateBound(
+                new XYZ(xFeet, yFeet, hostBox.Min.Z - 1.0),
+                new XYZ(xFeet, yFeet, hostBox.Max.Z + 1.0));
+
+            Reference hitRef = null;
+            XYZ hitPoint = null;
+            foreach (Reference r in faceRefs)
+            {
+                Face f = hostObj.GetGeometryObjectFromReference(r) as Face;
+                if (f == null) continue;
+                IntersectionResultArray ira;
+                if (f.Intersect(ray, out ira) == SetComparisonResult.Overlap && ira != null && ira.Size > 0)
+                {
+                    hitRef = r;
+                    hitPoint = ira.get_Item(0).XYZPoint;
+                    break;
+                }
+            }
+
+            if (hitRef == null)
+                throw new Exception($"點 ({xMm}, {yMm}) 不在主體 {hostIdValue} 的 {faceKey} 面範圍內（可能落在天花板開口或邊界外）。");
+
+            double rotationDeg = placement["rotation"]?.Value<double>() ?? 0;
+
+            Level level = doc.GetElement(host.LevelId) as Level;
+            FamilyPlacementType placementType = symbol.Family.FamilyPlacementType;
+            FamilyInstance instance;
+            switch (placementType)
+            {
+                case FamilyPlacementType.WorkPlaneBased:
+                    instance = doc.Create.NewFamilyInstance(hitRef, hitPoint, XYZ.BasisX, symbol);
+                    break;
+                case FamilyPlacementType.OneLevelBasedHosted:
+                    if (level == null)
+                        throw new Exception($"主體 {hostIdValue} 沒有所屬樓層，OneLevelBasedHosted 族群需要樓層。");
+                    instance = doc.Create.NewFamilyInstance(hitPoint, symbol, host, level, StructuralType.NonStructural);
+                    break;
+                default:
+                    throw new Exception($"族群 {symbol.FamilyName} 的放置型式為 {placementType}，不支援主體放置（僅支援 WorkPlaneBased 面式族群與 OneLevelBasedHosted）。");
+            }
+            createdElementId = instance.Id.GetIdValue();
+
+            string levelName = level?.Name ?? (doc.GetElement(instance.LevelId) as Level)?.Name;
+            return FinishPlacedInstance(doc, instance, index, tag, placement, hitPoint, rotationDeg, levelName);
         }
 
         /// <summary>

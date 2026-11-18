@@ -1,24 +1,27 @@
 ---
 name: rfa-family-authoring
-description: "用 rfa_* 工具在族群編輯器中建立參數化族群的 SOP：前置條件、建立順序（類型→參數→參考平面→尺寸標籤→形體→對齊鎖定→撓曲測試）、四種形體（擠出/融合/掃掠/參考線掃掠）的座標約定、參數化管件配方，以及實測確認行不通的路線。觸發：族群建模、RFA 建模、參數化族群、族群編輯器、rfa_create_extrusion、參考線掃掠、Rhino 轉族群。"
+description: "用 rfa_* 工具在族群編輯器中建立參數化族群的 SOP：前置條件、建立順序（類型→參數→參考平面→尺寸標籤→形體→對齊鎖定→撓曲測試）、四種形體（擠出/融合/掃掠/參考線掃掠）的座標約定、參數化管件配方，以及實測確認行不通的路線；另含以 rfa_import_cad 匯入 SAT／3DM／DWG 作為非參數化幾何。觸發：族群建模、RFA 建模、參數化族群、族群編輯器、rfa_create_extrusion、參考線掃掠、Rhino 轉族群、rfa_import_cad、SAT 匯入族群。"
 metadata:
-  version: "1.13"
-  updated: "2026-11-17"
+  version: "1.16"
+  updated: "2026-11-18"
   created: "2026-11-10"
   references:
     - "Revit API: FamilyItemFactory (NewExtrusion / NewBlend / NewSweep / NewReferencePlane / NewDimension / NewAlignment)"
     - "Revit API: FamilyManager (AddParameter / SetFormula / AssociateElementParameterToFamilyParameter)"
+    - "Revit API: Document.Import (SATImportOptions / ImportOptions3DM / DWGImportOptions)"
   related:
     - GM_rfa-family-injection.md
     - tool-capability-boundary.md
     - family-inventory-cleanup.md
-  referenced_by: []
-  tags: [族群, family, rfa, 族群編輯器, 參數化, extrusion, sweep, blend, reference-plane, reference-line]
+  referenced_by:
+    - rhino-furniture-plan
+    - rfa-generate
+  tags: [族群, family, rfa, 族群編輯器, 參數化, extrusion, sweep, blend, reference-plane, reference-line, import, sat]
 ---
 
 # RFA 族群建模工作流程（rfa_* Family Authoring）
 
-`rfa_*` 系列共 25 支工具，作用對象是 **Revit 目前作用中的族群文件（.rfa）**。用途是讓 AI 在族群編輯器裡建立參考平面、參數、類型與形體，並把形體綁到參數上，做出可撓曲（flex）的參數化族群。
+`rfa_*` 系列共 26 支工具，作用對象是 **Revit 目前作用中的族群文件（.rfa）**。用途是讓 AI 在族群編輯器裡建立參考平面、參數、類型與形體，並把形體綁到參數上，做出可撓曲（flex）的參數化族群。
 
 本文件定義「怎麼用、照什麼順序用、哪些路線已確認走不通」。工具的完整參數以 `MCP-Server/src/tools/rfa-family-tools.ts` 為準。
 
@@ -32,7 +35,7 @@ metadata:
 | 載入專案需要專案已開啟 | `rfa_load_into_project` 只能載入到同一個 Revit 工作階段中**已開啟**的專案，工具不會替使用者開啟 .rvt。存檔可用 `rfa_save_as` |
 | 材質要先存在於族群檔 | `material` 參數只能填族群檔內已有的材質名稱，工具不會從專案或材質庫帶入。缺的材質用 `rfa_create_material` 建立；現有材質可從 `rfa_get_document_info` 的 `materials` 查到 |
 | 單位 | 長度 mm、角度 度、面積 m²、體積 m³、是/否 用 true/false、材質用名稱 |
-| 實機驗證範圍 | 2026-11 只在 **Revit 2027** 實測通過；R22–R26 可編譯但未實測。`rfa_new_family`、`rfa_open_family`、`rfa_load_into_project`、`rfa_create_revolution`、`rfa_create_swept_blend`、`rfa_create_material`、`rfa_set_form_visibility`、`rfa_place_nested_family`、`rfa_modify_parameter`、`rfa_delete_parameter`、`rfa_create_connector`、`rfa_list_constraints`、`rfa_delete_elements`（及 `rfa_add_parameter` 的共用參數）於 2026-11-16 新增，2026-11-17 已在 Revit 2027 完成實機測試清單（T1–T11、R、V 全數有結果） |
+| 實機驗證範圍 | 2026-11 只在 **Revit 2027** 實測通過；R22–R26 可編譯但未實測。`rfa_new_family`、`rfa_open_family`、`rfa_load_into_project`、`rfa_create_revolution`、`rfa_create_swept_blend`、`rfa_create_material`、`rfa_set_form_visibility`、`rfa_place_nested_family`、`rfa_modify_parameter`、`rfa_delete_parameter`、`rfa_create_connector`、`rfa_list_constraints`、`rfa_delete_elements`（及 `rfa_add_parameter` 的共用參數）於 2026-11-16 新增，2026-11-17 已在 Revit 2027 完成實機測試清單（T1–T11、R、V 全數有結果）。`rfa_import_cad` 於 2026-11-18 新增，R22–R27 皆可編譯，**尚未在 Revit 中實機驗證**（見 5.16）。`rfa_create_symbolic_line` 的 `polylines` 批次模式同日新增，同樣**尚未實機驗證**（見 5.5） |
 
 ---
 
@@ -59,10 +62,11 @@ metadata:
 | `rfa_set_form_visibility` | 把形體指派到子類別（可自動建立並設線色／線寬／材質），設定詳細等級與視圖方向的可見性 | |
 | `rfa_place_nested_family` | 載入巢狀族群、放置實例、把巢狀參數關聯到主族群參數 | |
 | `rfa_create_connector` | 在形體的平面面上建立 MEP 接頭（管／風管／電力／導線管／電纜架） | |
+| `rfa_import_cad` | 把 SAT／3DM／DWG／DXF 匯入族群檔，成為非參數化的匯入幾何（尚未實機驗證） | |
 | `rfa_align_to_reference_plane` | 把形體上與參考平面共面的面鎖到該平面 | |
 | `rfa_list_constraints` | 列出尺寸與鎖定對齊：種類、標籤、數值、參考到的元素 | ✅ |
 | `rfa_delete_elements` | 刪除形體／參考平面／線／尺寸／接頭（**破壞性**；預設 dryRun，回報連帶刪除的確切清單） | |
-| `rfa_create_symbolic_line` | 在參考平面上建立符號線（直線或三點圓弧），可指定子類別線型，並約束到其他參考平面 | |
+| `rfa_create_symbolic_line` | 在參考平面上建立符號線（直線或三點圓弧），可指定子類別線型，並約束到其他參考平面；`polylines` 批次模式一次畫多條折線（見 5.5） | |
 | `rfa_save_as` | 把作用中的族群文件另存為 .rfa | |
 | `rfa_load_into_project` | 把作用中的族群載入已開啟的專案；已存在則重新載入 | |
 
@@ -201,6 +205,21 @@ metadata:
 
 > 例：門上方加了氣窗後，立面開門方向線的頂點要從洞口頂改鎖到門扇頂——重畫四條線，頂點約束到「門扇頂」與中心平面，鉸鏈側端點約束到 Left / Right 與門扇半高平面。
 
+**批次模式（polylines）**（2026-11-18 新增，**尚未在 Revit 中實機驗證**）：家具平面輪廓這類由大量直線段組成的 2D 表現，逐段呼叫太慢（一張沙發要 109 次）。改傳 `polylines`，一次呼叫、一個交易畫完。
+
+| 參數 | 說明 |
+|---|---|
+| `polylines` | 折線陣列，每條 `{ pointsMm: [[x,y,z], ...], closed?: boolean }`。相鄰兩點成為一條直線符號線；`closed: true`（且 3 點以上）時補畫最後一點回到第一點 |
+| `hostPlane` | 所有點都必須落在此平面上（容差 0.5 mm），否則整批拒絕並指出是哪一點 |
+| `subcategory` | 套用到全部線段 |
+| `line` / `arc` / `constraints` | 與 `polylines` **互斥**，同時提供會直接拒絕。批次模式只畫直線、不加約束 |
+
+- 長度小於 max(0.5 mm, Revit 短曲線容差) 的線段會**略過**，回傳 `skipped` 數量、`skipThresholdMm` 與被略過線段的索引（最多列 50 筆）。
+- 單次上限 **2000 段**（含 `closed` 的收尾段與被略過的段）；超過時直接拒絕，請拆成多次呼叫。
+- 任何一段建立失敗即**整批復原**，錯誤訊息帶出 `polylines[i]` 第 `j` 段（皆由 0 起算）。
+- 回傳 `totalCreated`、`skipped`、每條折線的 `ids`，以及所有線段的 `boundingBoxMm`（min / max）供自檢。
+- 需要跟參數走的線（例如開門方向線）仍用單線模式加 `constraints`。
+
 ### 5.6 另存族群（Save As）
 
 `rfa_save_as` 把作用中的族群文件存成 .rfa。
@@ -323,6 +342,29 @@ metadata:
 - 流量、壓降、電氣負載等**工程參數不在這支工具的範圍**；這些數值的來源與方法依 `domain/mep-space-demand-matrix.md` 等對應的 domain 文件，不要憑印象填。
 - 建立後用 `rfa_get_document_info` 的 `connectors` 核對位置、方向與尺寸。
 
+### 5.16 匯入 CAD 幾何（Import CAD）
+
+> 2026-11-18 新增；R22–R27 皆可編譯。**3DM 匯入已在 Revit 2027 實機驗證**（見本節末）；SAT／DWG／DXF 路徑尚未實測。
+
+`rfa_import_cad` 用 `Document.Import` 把 `.sat`／`.3dm`／`.dwg`／`.dxf` 匯入作用中的族群檔，成為族群內的**匯入幾何**（ImportInstance）。典型用途：Rhino 建好的家具外形（例如沙發）匯出成 SAT，放進「Metric Furniture」族群。
+
+- **結果是非參數化的**：匯入幾何不會跟著族群參數變形，也不能用 `rfa_align_to_reference_plane` 鎖到參考平面。需要撓曲的部分仍要用 `rfa_create_*` 建形體；匯入幾何只適合固定外形。
+- **SAT 必須是 Brep**：Rhino 的網格（Mesh）**無法匯出成 SAT**。網格要先轉成 Brep（多重曲面）才能匯出，而且**轉換前要先減面**：由網格轉來的 Brep 每個網格面都會變成一個 Brep 面，SAT 檔約每面 2.4 KB，面數一多檔案與族群都會很重。
+- **明確指定單位**：`units` 預設 `auto`（交給 Revit 判斷），但 SAT／3DM 的單位判斷不一定可靠。Rhino 以 cm 建模就給 `centimeter`，以 mm 建模就給 `millimeter`。匯入後核對回傳的 `sizeMm` 是否等於預期尺寸，差 10 倍或 25.4 倍就是單位錯。
+- **原點與方向**：`placement: "origin"`（預設）讓檔案原點對到族群原點。建議在 Rhino 端就把原點放在物件**底部中心**、正面朝 **-Y**，匯入後才會落在族群的參考平面交點上、正面朝向與 Revit 家具族群慣例一致。`center` 會把幾何中心放到族群原點，底部不一定落在 Z=0。
+- **視圖**：預設匯入非透視的 3D 視圖（沒有時改用樓板平面）；`thisViewOnly` 預設 `false`，3D 幾何必須保持 `false` 才會成為族群的 3D 形體（3D 視圖傳 `true` 會被拒絕）。2D 的 DWG／DXF 只要出現在某個平面或立面時，才用 `viewName` + `thisViewOnly: true`。
+- **回傳核對**：`id`、`boundingBoxMm`、`sizeMm`、`unitsUsed`，以及 `geometry`（`solidCount`、`faceCount`、`meshCount`、`curveCount`、`solidVolumeM3`）。SAT 匯入後 `solidCount` 為 0 而只有曲線或網格，表示來源不是封閉實體，請回 Rhino 檢查。
+- 匯入幾何的子類別與可見性不在這支工具的範圍；`rfa_set_form_visibility` 只處理擠出、融合等形體，匯入幾何請由使用者在 Revit 中處理。
+
+**Revit 2027 實測（2026-11-18，3DM 路徑）**：
+
+- **3DM 可直接帶網格**：Rhino 的 Mesh 寫進 .3dm（`File3dm`，單位設 mm）後以 `units: "millimeter"` 匯入，回傳 `meshCount` 對得上、`sizeMm` 與 Rhino 尺寸一致。家具、燈具這類網格模型走 3DM 即可，**不必轉 Brep 再出 SAT**（實測椅子約 3 萬網格面可匯入）。
+- **樣板原點不一定在 (0,0,0)**，匯入前先用 `rfa_get_document_info` 看參考平面：
+  - `Metric Casework.rft`：背板 `Back` 在 Y=0、`Front` 在 Y=-600，插入點的左右中心 `Center (Left/Right)` 在 **X=44.7**。幾何以 X=0 為中心時，放到專案後會偏 44.7 mm。
+  - `Metric Lighting Fixture ceiling based.rft`：主體天花面對應族群內的 `Ceiling` 平面 **Z=4000**，不是 Z=0。吊燈幾何要以 Z=4000 為頂往下建；以 Z=0 為頂匯入時，放到天花板上後整盞燈會落到樓板下方 4000 mm。`Light Source Elevation` 在 Z=3750（天花下 250 mm），長吊燈的光源位置需另外處理。
+  - `Metric Furniture.rft`、`Metric Specialty Equipment.rft`：中心平面皆在 0，以底部中心為原點即可。
+- 放到專案後，用 `get_element_geometry`（boundingbox）與來源尺寸比對；燈具族群的 bbox 會包含光源符號，頂端可能高於天花面。
+
 ---
 
 ## 6. 對齊與尺寸（Constraints）
@@ -414,6 +456,8 @@ metadata:
 | 共用參數檔裡找不到「X」 | `shared: true` 的名稱不在共用參數檔中 | 從錯誤訊息列出的名稱中選，或指定正確的 `sharedParameterFile`；工具不會替你新增定義 |
 | 參數仍被使用，已拒絕刪除 | `rfa_delete_parameter` 發現公式、形體或尺寸仍引用它 | 先解除引用；確定要連帶破壞時，經使用者同意後才用 `force` |
 | 檔案已存在 | `rfa_save_as`、`rfa_new_family` 預設不覆蓋 | 換檔名，或經使用者確認後傳 `overwrite: true` |
+| 不支援的副檔名 | `rfa_import_cad` 只收 .sat／.3dm／.dwg／.dxf | 在來源軟體另存為支援的格式；Rhino 網格先轉 Brep 再匯出 SAT |
+| Document.Import 沒有回傳有效的元素 | 檔案是空的、不是實體，或單位造成幾何過大／過小 | 檢查來源檔；明確指定 `units` |
 
 ---
 

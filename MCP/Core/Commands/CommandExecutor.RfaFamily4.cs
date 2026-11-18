@@ -60,6 +60,9 @@ namespace RevitMCP.Core
             XYZ hn = hostRp.Normal.Normalize();
             XYZ ho = hostRp.GetPlane().Origin;
 
+            if (parameters["polylines"] != null && parameters["polylines"].Type != JTokenType.Null)
+                return RfaCreateSymbolicPolylines(doc, parameters, hostName, hostRp, hn, ho, tol);
+
             Curve curve;
             bool isArc;
             if (parameters["line"] is JObject ln)
@@ -112,6 +115,152 @@ namespace RevitMCP.Core
                 lengthMm = RfaToMm(fin.Length),
                 constraints = results,
                 warnings,
+            };
+        }
+
+        /// <summary>批次模式單次呼叫允許的線段上限（含 closed 補上的收尾段、含被略過的短段）</summary>
+        private const int RfaSymbolicPolylineMaxSegments = 2000;
+
+        /// <summary>
+        /// rfa_create_symbolic_line 的批次模式（polylines）：多條折線一次畫完、同一個交易。
+        /// 每對相鄰點成為一條直線符號線；closed 時補上最後一點回到第一點的收尾段。
+        /// 長度小於 max(0.5 mm, Revit ShortCurveTolerance) 的線段略過並計數。
+        /// 任何一段失敗即整批復原，錯誤訊息帶出 polyline / segment 索引（皆由 0 起算）。
+        /// 批次模式不支援 constraints（家具平面輪廓這類線不需要跟參數走）。
+        /// </summary>
+        private object RfaCreateSymbolicPolylines(Document doc, JObject parameters, string hostName,
+            ReferencePlane hostRp, XYZ hn, XYZ ho, double tol)
+        {
+            foreach (string k in new[] { "line", "arc", "constraints" })
+                if (parameters[k] != null && parameters[k].Type != JTokenType.Null)
+                    throw new Exception($"使用 polylines 批次模式時不可同時提供 {k}（批次模式只畫直線段、不加約束）");
+
+            var polys = parameters["polylines"] as JArray;
+            if (polys == null || polys.Count == 0)
+                throw new Exception("polylines 需要非空陣列：[{ pointsMm: [[x,y,z], ...], closed?: boolean }, ...]");
+
+            double minLen = Math.Max(RfaMm(0.5), doc.Application.ShortCurveTolerance);
+
+            // 先完整驗證並組好所有線段，再開交易；驗證失敗不會留下任何東西
+            var segs = new List<(int poly, int seg, Line line)>();
+            var skippedList = new List<object>();
+            var polyClosed = new bool[polys.Count];
+            var polySkipped = new int[polys.Count];
+            int totalSegments = 0;
+
+            for (int i = 0; i < polys.Count; i++)
+            {
+                var po = polys[i] as JObject ?? throw new Exception($"polylines[{i}] 必須是物件 {{ pointsMm, closed? }}");
+                var ptsArr = po["pointsMm"] as JArray;
+                if (ptsArr == null || ptsArr.Count < 2)
+                    throw new Exception($"polylines[{i}].pointsMm 至少需要 2 個點 [x, y, z]（mm）");
+                bool closed = po["closed"]?.Value<bool>() ?? false;
+                polyClosed[i] = closed;
+
+                var pts = new List<XYZ>(ptsArr.Count);
+                for (int j = 0; j < ptsArr.Count; j++)
+                {
+                    XYZ p = RfaReadXyzMm(ptsArr[j], $"polylines[{i}].pointsMm[{j}]");
+                    double off = (p - ho).DotProduct(hn);
+                    if (Math.Abs(off) > tol)
+                        throw new Exception($"polylines[{i}].pointsMm[{j}] 不在 hostPlane「{hostName}」上（偏離 {RfaToMm(off)} mm）");
+                    pts.Add(p);
+                }
+
+                int segCount = closed && pts.Count >= 3 ? pts.Count : pts.Count - 1;
+                totalSegments += segCount;
+                if (totalSegments > RfaSymbolicPolylineMaxSegments)
+                    throw new Exception($"線段總數超過上限 {RfaSymbolicPolylineMaxSegments}（算到 polylines[{i}] 已達 {totalSegments} 段）。請拆成多次呼叫");
+
+                for (int s = 0; s < segCount; s++)
+                {
+                    XYZ a = pts[s], b = pts[(s + 1) % pts.Count];
+                    double len = a.DistanceTo(b);
+                    if (len < minLen)
+                    {
+                        polySkipped[i]++;
+                        if (skippedList.Count < 50)
+                            skippedList.Add(new { polyline = i, segment = s, lengthMm = RfaToMm(len) });
+                        continue;
+                    }
+                    segs.Add((i, s, Line.CreateBound(a, b)));
+                }
+            }
+
+            if (segs.Count == 0)
+                throw new Exception($"所有線段都短於 {RfaToMm(minLen)} mm 而被略過，沒有可建立的符號線");
+
+            string subName = parameters["subcategory"]?.Value<string>();
+            GraphicsStyle style = string.IsNullOrWhiteSpace(subName) ? null : RfaFindSubcategoryStyle(doc, subName);
+
+            var created = new List<(int poly, SymbolicCurve sc)>(segs.Count);
+            using (var t = new Transaction(doc, "MCP: rfa_create_symbolic_line (polylines)"))
+            {
+                var failures = RfaUseRollbackOnError(t);
+                t.Start();
+
+                SketchPlane sp = SketchPlane.Create(doc, hostRp.Id);
+                foreach (var (poly, seg, line) in segs)
+                {
+                    SymbolicCurve sc;
+                    try
+                    {
+                        sc = doc.FamilyCreate.NewSymbolicCurve(line, sp);
+                        if (sc == null) throw new Exception("Revit 回傳 null");
+                        if (style != null) sc.Subcategory = style;
+                    }
+                    catch (Exception ex)
+                    {
+                        t.RollBack();
+                        throw new Exception($"polylines[{poly}] 第 {seg} 段建立失敗，整批已復原：{ex.Message}");
+                    }
+                    created.Add((poly, sc));
+                }
+
+                if (t.Commit() != TransactionStatus.Committed)
+                    throw new Exception($"Revit 拒絕了這批符號線（整批交易被復原）{RfaFailureText(failures)}");
+            }
+
+            double minX = double.MaxValue, minY = double.MaxValue, minZ = double.MaxValue;
+            double maxX = double.MinValue, maxY = double.MinValue, maxZ = double.MinValue;
+            var idsPerPoly = new List<IdType>[polys.Count];
+            for (int i = 0; i < polys.Count; i++) idsPerPoly[i] = new List<IdType>();
+            foreach (var (poly, sc) in created)
+            {
+                idsPerPoly[poly].Add(sc.Id.GetIdValue());
+                Curve g = sc.GeometryCurve;
+                foreach (XYZ p in new[] { g.GetEndPoint(0), g.GetEndPoint(1) })
+                {
+                    minX = Math.Min(minX, p.X); minY = Math.Min(minY, p.Y); minZ = Math.Min(minZ, p.Z);
+                    maxX = Math.Max(maxX, p.X); maxY = Math.Max(maxY, p.Y); maxZ = Math.Max(maxZ, p.Z);
+                }
+            }
+
+            int skippedTotal = polySkipped.Sum();
+            return new
+            {
+                kind = "polylines",
+                hostPlane = hostName,
+                subcategory = created[0].sc.Subcategory?.Name,
+                polylineCount = polys.Count,
+                totalCreated = created.Count,
+                skipped = skippedTotal,
+                skipThresholdMm = RfaToMm(minLen),
+                skippedSegments = skippedList,
+                skippedSegmentsTruncated = skippedTotal > skippedList.Count,
+                polylines = Enumerable.Range(0, polys.Count).Select(i => new
+                {
+                    index = i,
+                    closed = polyClosed[i],
+                    created = idsPerPoly[i].Count,
+                    skipped = polySkipped[i],
+                    ids = idsPerPoly[i],
+                }).ToList(),
+                boundingBoxMm = new
+                {
+                    min = new[] { RfaToMm(minX), RfaToMm(minY), RfaToMm(minZ) },
+                    max = new[] { RfaToMm(maxX), RfaToMm(maxY), RfaToMm(maxZ) },
+                },
             };
         }
 

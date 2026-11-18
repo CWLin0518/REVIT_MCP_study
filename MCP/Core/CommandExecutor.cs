@@ -874,6 +874,10 @@ namespace RevitMCP.Core
                         result = RfaDeleteElements(parameters);
                         break;
 
+                    case "rfa_import_cad":
+                        result = RfaImportCad(parameters);
+                        break;
+
                     default:
                         throw new NotImplementedException($"未實作的命令: {request.CommandName}");
                 }
@@ -1192,6 +1196,30 @@ namespace RevitMCP.Core
                             if (int.TryParse(value, out int iVal))
                                 success = param.Set(iVal);
                             break;
+                        case StorageType.ElementId:
+                            {
+                                // "None" / "-1" / 空字串 → InvalidElementId（例如清除 Phase Demolished）
+                                // 數字 → 直接當 ElementId；其他文字 → 依名稱找 Phase（Phase Created / Phase Demolished 用）
+                                ElementId idVal;
+                                string v = (value ?? "").Trim();
+                                if (v.Length == 0 || v == "-1" || v.Equals("None", StringComparison.OrdinalIgnoreCase) || v == "無")
+                                {
+                                    idVal = ElementId.InvalidElementId;
+                                }
+                                else if (IdType.TryParse(v, out IdType rawId))
+                                {
+                                    idVal = rawId.ToElementId();
+                                }
+                                else
+                                {
+                                    Phase phase = doc.Phases.Cast<Phase>().FirstOrDefault(p => p.Name == v);
+                                    if (phase == null)
+                                        throw new Exception($"ElementId 參數 {parameterName} 需要數字 ID、None 或階段名稱，找不到: {v}");
+                                    idVal = phase.Id;
+                                }
+                                success = param.Set(idVal);
+                                break;
+                            }
                         default:
                             throw new Exception($"不支援的參數類型: {param.StorageType}");
                     }
