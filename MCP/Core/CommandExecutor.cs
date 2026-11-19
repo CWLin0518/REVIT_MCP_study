@@ -237,6 +237,9 @@ namespace RevitMCP.Core
                     case "clone_elevation_views_to_plans":
                         result = CloneElevationViewsToPlans(parameters);
                         break;
+                    case "create_room_interior_elevations":
+                        result = CreateRoomInteriorElevations(parameters);
+                        break;
                     case "sync_elevation_view_extents":
                         result = SyncElevationViewExtents(parameters);
                         break;
