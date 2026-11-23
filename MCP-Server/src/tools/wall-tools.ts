@@ -175,6 +175,63 @@ export const wallTools: Tool[] = [
         },
     },
     {
+        name: "set_wall_location_lines",
+        description: "批次修改直牆定位線的起訖點（公釐），可同時調整牆的位置與長度。全部成功才提交，預設 dryRun 試算後回滾；保留 Z 與牆方向，拒絕釘選、群組內、弧形牆及超過 maxShiftMm 的位移。",
+        inputSchema: {
+            type: "object",
+            properties: {
+                walls: {
+                    type: "array",
+                    description: "要修改的牆與新定位線",
+                    items: {
+                        type: "object",
+                        properties: {
+                            wallId: { type: "number", description: "牆的 Element ID" },
+                            startX: { type: "number", description: "新起點 X（公釐）" },
+                            startY: { type: "number", description: "新起點 Y（公釐）" },
+                            endX: { type: "number", description: "新終點 X（公釐）" },
+                            endY: { type: "number", description: "新終點 Y（公釐）" },
+                        },
+                        required: ["wallId", "startX", "startY", "endX", "endY"],
+                    },
+                },
+                dryRun: { type: "boolean", description: "true 時試算後回滾，不改模型", default: true },
+                maxShiftMm: { type: "number", description: "單一端點允許的最大位移（公釐）", default: 150 },
+                resolveJoinFailures: {
+                    type: "boolean",
+                    description: "true 時，清單內的牆若發生「無法維持接合」，自動取消該組接合",
+                    default: false,
+                },
+                detachTopAttachments: {
+                    type: "array",
+                    description: "移牆前解除清單內牆的牆頂附著；解除後牆頂高度若改變則整批回滾",
+                    items: {
+                        type: "object",
+                        properties: {
+                            wallId: { type: "number", description: "牆的 Element ID（必須也在 walls 內）" },
+                            targetIds: { type: "array", items: { type: "number" }, description: "附著目標（樓板等）的 Element ID" },
+                        },
+                        required: ["wallId", "targetIds"],
+                    },
+                },
+                rebuildSketchEdges: {
+                    type: "array",
+                    description: "移牆前，把天花板草圖中位於指定軸線上的直線原位重建，以解除與牆的關聯",
+                    items: {
+                        type: "object",
+                        properties: {
+                            elementId: { type: "number", description: "天花板 Element ID" },
+                            axis: { type: "string", enum: ["x", "y"], description: "邊線所在的固定座標軸" },
+                            valueMm: { type: "number", description: "該軸的座標值（公釐）" },
+                        },
+                        required: ["elementId", "axis", "valueMm"],
+                    },
+                },
+            },
+            required: ["walls"],
+        },
+    },
+    {
         name: "get_all_grids",
         description: "取得專案中所有網格線（Grid）的資訊。",
         inputSchema: { type: "object", properties: {} },

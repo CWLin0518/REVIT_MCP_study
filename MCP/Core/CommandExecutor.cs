@@ -702,6 +702,9 @@ namespace RevitMCP.Core
                     case "flip_element":
                         result = FlipElement(parameters);
                         break;
+                    case "set_wall_location_lines":
+                        result = SetWallLocationLines(parameters);
+                        break;
 
                     // === 視圖與基準線調整模組 ===
                     case "adjust_section_datums":
