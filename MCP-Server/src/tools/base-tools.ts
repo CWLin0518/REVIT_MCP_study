@@ -283,7 +283,7 @@ export const baseTools: Tool[] = [
     },
     {
         name: "move_element",
-        description: "移動指定的 Revit 元素（依 dx, dy, dz 指定位移量）。",
+        description: "移動指定的 Revit 元素（依 dx, dy, dz 指定位移量）。直線定位元素（如樑）也可改用 startPoint / endPoint 指定單端或兩端的 XY，Z 維持不變；不可與 dx/dy/dz 同時使用。",
         inputSchema: {
             type: "object",
             properties: {
@@ -291,6 +291,18 @@ export const baseTools: Tool[] = [
                 dx: { type: "number", description: "X 軸移動距離 (mm)", default: 0 },
                 dy: { type: "number", description: "Y 軸移動距離 (mm)", default: 0 },
                 dz: { type: "number", description: "Z 軸移動距離 (mm)", default: 0 },
+                startPoint: {
+                    type: "object",
+                    description: "直線定位元素起點的新 XY (mm)",
+                    properties: { x: { type: "number" }, y: { type: "number" } },
+                    required: ["x", "y"],
+                },
+                endPoint: {
+                    type: "object",
+                    description: "直線定位元素終點的新 XY (mm)",
+                    properties: { x: { type: "number" }, y: { type: "number" } },
+                    required: ["x", "y"],
+                },
             },
             required: ["elementId"],
         },

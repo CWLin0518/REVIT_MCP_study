@@ -33,6 +33,15 @@ namespace RevitMCP.Core
                 throw new Exception($"找不到元素 ID: {elementId}");
             }
 
+            JObject startPoint = parameters["startPoint"] as JObject;
+            JObject endPoint = parameters["endPoint"] as JObject;
+            if (startPoint != null || endPoint != null)
+            {
+                if (dx != 0 || dy != 0 || dz != 0)
+                    throw new Exception("startPoint/endPoint 不可與 dx/dy/dz 同時使用");
+                return MoveLineEndpoints(doc, element, startPoint, endPoint);
+            }
+
             using (Transaction trans = new Transaction(doc, $"移動元素: {elementId}"))
             {
                 trans.Start();
@@ -52,6 +61,66 @@ namespace RevitMCP.Core
                     Message = "成功移動元素"
                 };
             }
+        }
+
+        /// <summary>
+        /// Moves the XY of one or both ends of a straight line-based element. Z is kept.
+        /// The transaction rolls back if Revit does not land the ends within 0.01 mm.
+        /// </summary>
+        private object MoveLineEndpoints(Document doc, Element element, JObject startPoint, JObject endPoint)
+        {
+            LocationCurve location = element.Location as LocationCurve;
+            Line oldLine = location?.Curve as Line;
+            if (oldLine == null || !oldLine.IsBound)
+                throw new Exception($"元素 {element.Id} 不是直線定位元素，無法指定端點");
+            if (element.Pinned)
+                throw new Exception($"元素 {element.Id} 已釘選，請先解除釘選");
+
+            XYZ oldStart = oldLine.GetEndPoint(0);
+            XYZ oldEnd = oldLine.GetEndPoint(1);
+            XYZ newStart = ResolveEndpointXY(startPoint, oldStart, "startPoint");
+            XYZ newEnd = ResolveEndpointXY(endPoint, oldEnd, "endPoint");
+            if (newStart.DistanceTo(newEnd) <= doc.Application.ShortCurveTolerance)
+                throw new Exception("新端點距離過短，無法建立直線");
+
+            const double toleranceFeet = 0.01 / 304.8;
+            using (Transaction trans = new Transaction(doc, $"調整端點: {element.Id}"))
+            {
+                trans.Start();
+                location.Curve = Line.CreateBound(newStart, newEnd);
+                doc.Regenerate();
+
+                Curve actual = ((LocationCurve)element.Location).Curve;
+                if (actual.GetEndPoint(0).DistanceTo(newStart) > toleranceFeet
+                    || actual.GetEndPoint(1).DistanceTo(newEnd) > toleranceFeet)
+                {
+                    trans.RollBack();
+                    throw new Exception("Revit 未將端點放到指定位置，已復原");
+                }
+
+                if (trans.Commit() != TransactionStatus.Committed)
+                    throw new Exception("Revit 拒絕提交端點變更，模型未修改");
+            }
+
+            return new
+            {
+                ElementId = element.Id.GetIdValue(),
+                OldStart = new { X = Math.Round(oldStart.X * 304.8, 2), Y = Math.Round(oldStart.Y * 304.8, 2), Z = Math.Round(oldStart.Z * 304.8, 2) },
+                OldEnd = new { X = Math.Round(oldEnd.X * 304.8, 2), Y = Math.Round(oldEnd.Y * 304.8, 2), Z = Math.Round(oldEnd.Z * 304.8, 2) },
+                NewStart = new { X = Math.Round(newStart.X * 304.8, 2), Y = Math.Round(newStart.Y * 304.8, 2), Z = Math.Round(newStart.Z * 304.8, 2) },
+                NewEnd = new { X = Math.Round(newEnd.X * 304.8, 2), Y = Math.Round(newEnd.Y * 304.8, 2), Z = Math.Round(newEnd.Z * 304.8, 2) },
+                Message = "成功調整元素端點"
+            };
+        }
+
+        private static XYZ ResolveEndpointXY(JObject point, XYZ current, string name)
+        {
+            if (point == null) return current;
+            double? x = point["x"]?.Value<double>();
+            double? y = point["y"]?.Value<double>();
+            if (x == null || y == null)
+                throw new Exception($"{name} 需要 x 與 y (mm)");
+            return new XYZ(x.Value / 304.8, y.Value / 304.8, current.Z);
         }
 
         /// <summary>
