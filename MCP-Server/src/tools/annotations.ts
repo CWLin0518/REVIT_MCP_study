@@ -117,6 +117,12 @@ export const OVERRIDE: Record<string, ClassificationHints> = {
 
     diagnose_curtain_wall_elevation_dimensions: { readOnlyHint: false, destructiveHint: false },
 
+    // find_ 不在唯讀前綴表；它只做幾何查詢（鉛直線求交、到牆位置線距離），不開交易。
+    find_host_at_point: { readOnlyHint: true, destructiveHint: false },
+    // load_ 不在任何前綴表，預設即為非破壞性寫入；明列以示刻意：載入族群會寫入專案但不刪改既有元素
+    // （同名族群預設沿用，reloadIfExists 才重新載入）。
+    load_family_from_path: { readOnlyHint: false, destructiveHint: false },
+
     // rfa_ 前綴蓋掉了 get_ 動詞，前綴規則會誤判為寫入；它只讀取族群文件。
     rfa_get_document_info: { readOnlyHint: true, destructiveHint: false },
     // 同上：rfa_ 前綴蓋掉了 list_ 動詞；它只列出尺寸與對齊約束，不開交易。

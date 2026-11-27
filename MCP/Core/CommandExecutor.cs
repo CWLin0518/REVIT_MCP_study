@@ -207,6 +207,12 @@ namespace RevitMCP.Core
                         result = PlaceFurniture(parameters);
                         break;
 
+                    case "load_family_from_path":
+                        result = LoadFamilyFromPath(parameters);
+                        break;
+                    case "find_host_at_point":
+                        result = FindHostAtPoint(parameters);
+                        break;
                     case "place_family_instances":
                         result = PlaceFamilyInstances(parameters);
                         break;

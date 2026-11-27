@@ -32,7 +32,7 @@ export async function executeRevitTool(
     const commandName = toolName === "query_elements_with_filter" ? "query_elements" : toolName;
 
     // 跨文件命令需要較長 timeout（開啟 .rvt/.rfa 檔案較費時）
-    const CROSS_DOC_COMMANDS = new Set(["read_source_file_sheets", "copy_sheets_from_file", "sync_sheet_parameters_from_source", "inject_green_material_into_family", "rfa_new_family", "rfa_open_family", "rfa_load_into_project", "rfa_place_nested_family"]);
+    const CROSS_DOC_COMMANDS = new Set(["read_source_file_sheets", "copy_sheets_from_file", "sync_sheet_parameters_from_source", "inject_green_material_into_family", "rfa_new_family", "rfa_open_family", "rfa_load_into_project", "rfa_place_nested_family", "load_family_from_path"]);
     // 大批次單一交易：逾時後 Revit 仍在執行且結果會遺失，需給足時間
     const LONG_TRANSACTION_COMMANDS = new Set(["set_wall_location_lines"]);
     // 影像匯出：大視圖或高解析度時 ExportImage 可能超過 30 秒

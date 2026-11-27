@@ -144,6 +144,38 @@ export const mepTools: Tool[] = [
         },
     },
     {
+        name: "load_family_from_path",
+        description: "把磁碟上的 .rfa 直接載入專案（Document.LoadFamily），不開族群編輯器。用於族群庫的族群放置前載入。filePath 必須是絕對路徑。目標專案：給 targetProject（標題或完整路徑）就用它；否則作用中文件是專案就用作用中文件；作用中是族群檔時，只有一個開啟中的專案才自動選用。族群以檔名命名：專案內已有同名族群時，預設直接沿用（status='already_loaded'，不重新載入、不改既有類型），reloadIfExists=true 才從檔案重新載入（status='reloaded'；overwriteParameterValues 決定是否覆蓋既有類型參數值）；Revit 判定內容相同未載入時 status='unchanged'。目標專案不是作用中文件時，activateProject（預設 true）會在載入後切換過去，因為放置工具都作用在作用中文件；從未存檔的專案無法切換，會列在 warnings。回傳 familyId、familyName、category / builtInCategory、placementType（OneLevelBased＝依樓層；OneLevelBasedHosted＝需 hostId；WorkPlaneBased＝面式）、hostingBehavior、以及每個類型 {id, name, isActive, lengthParams{參數名: {mm, readOnly}}}——lengthParams 是類型層級的長度參數，供 duplicate_type_only 複製類型後用 modify_element_parameter 調尺寸（注意該工具吃內部單位英尺：mm ÷ 304.8）。",
+        inputSchema: {
+            type: "object",
+            properties: {
+                filePath: { type: "string", description: "要載入的 .rfa 絕對路徑。" },
+                targetProject: { type: "string", description: "選填。已開啟專案的標題（有無 .rvt 皆可）或完整路徑。省略時用作用中專案，或唯一開啟的專案。" },
+                reloadIfExists: { type: "boolean", description: "專案內已有同名族群時是否從檔案重新載入。預設 false＝沿用既有族群。", default: false },
+                overwriteParameterValues: { type: "boolean", description: "只在重新載入時有效：以檔案中的類型參數值覆蓋專案既有值。預設 false。", default: false },
+                activateProject: { type: "boolean", description: "目標專案不是作用中文件時，載入後切換過去。預設 true。", default: true },
+            },
+            required: ["filePath"],
+        },
+    },
+    {
+        name: "find_host_at_point",
+        description: "找平面點 (x, y) 的放置主體（唯讀）。hostKind='ceiling'：對每片天花板的底面、'floor'：對每片樓板的頂面，從 (x, y) 作鉛直線求交——與 place_family_instances 帶 hostId 時的判定相同，命中者就能以 hostId 放置；天花板依底面高度由低到高、樓板由高到低排序，未命中但外框在 searchRadiusMm 內的列在後面（containsPoint=false，多半是開口、縫隙或邊界外）。hostKind='wall'：計算 (x, y) 到每面牆位置線的平面距離，回傳 isStraight、isCurtainWall、withinSegment（投影點落在牆段內而非端點）、side（相對 Wall.Orientation 為 exterior／interior）、distanceToCenterlineMm、distanceToFaceMm、facePoint；placeable=true 表示直線、非帷幕、投影在牆段內且點不在中心線上——place_family_instances 的牆主體放置只接受這種牆。排序：可放置者優先，再依到牆面距離。levelName（精確名稱，不做模糊比對）或 viewId（取視圖的樓層）限定樓層：天花板／樓板取 LevelId 相符者，牆取底部約束為該樓層、或高度範圍跨過樓層標高 +1000 mm 者；兩者都省略則搜尋所有樓層並在 warnings 註明。回傳 recommendedHostId（第一個可放置者，沒有則 null）、level {name, id, projectElevationMm}（ProjectElevation，與 place_family_instances 的 z 同一基準，可用來算依樓層放置的 z）、candidates（最多 maxResults 筆）與 note。座標為專案內部座標，單位 mm。",
+        inputSchema: {
+            type: "object",
+            properties: {
+                x: { type: "number", description: "平面點 X（專案內部座標，mm）。" },
+                y: { type: "number", description: "平面點 Y（專案內部座標，mm）。" },
+                hostKind: { type: "string", enum: ["ceiling", "floor", "wall"], description: "要找的主體種類。" },
+                levelName: { type: "string", description: "選填。樓層名稱（精確比對，大小寫不敏感）。" },
+                viewId: { type: "number", description: "選填。平面視圖 ID，取其樓層；與 levelName 同時給時以視圖為準並警告。" },
+                searchRadiusMm: { type: "number", description: "搜尋半徑 mm，預設 3000。牆：到位置線的距離；天花板／樓板：到外框的距離。", default: 3000 },
+                maxResults: { type: "number", description: "最多回傳幾筆候選，預設 5（1–50）。", default: 5 },
+            },
+            required: ["x", "y", "hostKind"],
+        },
+    },
+    {
         name: "create_duct_system",
         description: "把一組風口與一台設備組成 Revit 風管系統（MechanicalSystem）。equipmentId 可省略，用於建立「已決定獨立成系統但設備尚未選定」的中間狀態（端點未歸屬任何系統代表還沒決定，已建系統但設備欄空白代表已決定獨立、設備待補）——省略時會把 baseConnector 傳 null 呼叫 Revit API；Revit API 文件明載 baseEquipmentConnector 為選填、允許傳 null（\"The base equipment is optional for the system, so this argument may be null.\"），但此路徑目前僅為文件契約推導，執行期尚未實測，若實測發現與文件不符，例外訊息會原樣往上拋，不做替代方案。equipmentId、equipmentConnectorIndex、equipmentConnectorId 顯式傳 null 等同省略該參數。terminalIds 每筆若解析失敗（找不到元素、非 FamilyInstance、非整數 ElementId、該風口沒有任何 Connector、與 equipmentId 重複、在 terminalIds 內重複、Connector 已隸屬其他系統、方向或 Domain 不符、該風口有多於一個 HVAC Connector（本工具假設風口只有單一風管接頭，不自動挑選））都只記入該筆 TerminalResults 的 Error，不中止其餘風口；但全部風口都失敗時不建立系統，直接整體報錯。TerminalResults 陣列每筆對齊輸入 terminalIds 的同一位置，附 Index（輸入陣列位置，從 0 起算）、ElementId（terminalIds 該筆解析出的整數值；只有當這筆輸入本身不是合法整數時才為 null，一旦成功解析出整數，即使後續驗證失敗——與 equipmentId 重複、terminalIds 內重複、找不到元素、非 FamilyInstance、Connector 已隸屬其他系統等——ElementId 仍會回填該值方便對應是哪一筆，不會因為失敗就抹成 null，也不會用 0 這種本身合法的 ElementId 當失敗標記）、Success、Error、ConnectorIndex（該風口採用的 HVAC connector 在排序後清單中的位置索引，只有 Success=true 時才有值，其餘為 null）；另有 SystemNameAfter，只在該筆 Success=true 且整體 CommitStatus='Committed' 時才有值，其餘情況為 null；其值即頂層 SystemName 的逐筆複本。設備上常有多個 Connector（送風/回風/排風/水路/電源），選錯不會報錯、只會接成錯的系統類型：本工具依 systemType 篩選 Domain.DomainHvac 且 DuctSystemType 或 Direction 相符者，剛好 1 個才自動採用並在 EquipmentConnector 完整回報其 Index/ConnectorId/DuctSystemType/Direction/Shape/Origin（部分族群的非流體 Connector 讀取 Direction/Shape/Origin 會拋例外，已包 try/catch，讀不到回 \"N/A\"）；未帶 equipmentId 時 EquipmentConnector 為 null；找到 0 個或多於 1 個一律拋例外並在訊息列出全部候選，多於 1 個時請改用 equipmentConnectorIndex（清單位置索引，本工具已先依 Connector.Id 排序才建立索引，故同一族群在接頭數不變時穩定；但族群重載後若接頭增減，索引會位移且不會報錯，需跨次呼叫穩定指定同一接頭時請用 equipmentConnectorId）或 equipmentConnectorId（Connector.Id，穩定識別）明確指定，不會靜默取第一個；equipmentConnectorIndex/equipmentConnectorId 指定的 Connector 仍會驗證 DuctSystemType/Direction 是否與 systemType 相符，不符會拋例外（不會只驗 Domain 就放行）。設備或風口的 Connector 若已隸屬其他系統，Revit 不允許加入第二個系統，本工具會在對應的錯誤訊息中列出既有系統的 ElementId 與名稱。回傳的 SystemId 是新建立的 MechanicalSystem 的 ElementId，讀取時機在 trans.Commit() 之後——CommitStatus 非 'Committed'（交易未成功提交）或讀取本身失敗時為 null，此時沒有系統可供後續工具引用。SystemType 是實際採用的系統類型（即 systemType 參數解析後的值），恆有值、不受 CommitStatus 影響。EquipmentId 是實際採用的設備 ElementId，在設備 Connector 解析成功時（早於交易 Commit）就已決定；未帶 equipmentId 時為 null。SystemName 是實際生效的系統名稱，於 Commit 之後讀回；CommitStatus 非 Committed 或讀取失敗時為 null、不補值。SystemFlowReadBack 是建立後從系統本身讀回的總流量，不是呼叫端寫進去的，是 Revit 依系統成員實際計算的結果——但只有在回傳的 IsWellConnected=true 時才是有效計算值；IsWellConnected=false（例如風口已放置但風管尚未繪製，系統未良好連接）時 Revit 文件明載該計算參數無效，請勿用於驗算，回傳的 Note 會註明原因。IsWellConnected 讀 MechanicalSystem.IsWellConnected，CommitStatus 非 Committed 或讀取失敗時為 null。回傳同時附 SystemIsEmpty（讀 MEPSystem.IsEmpty），CommitStatus 非 Committed 或讀取失敗時同樣為 null、不補值。若有設備，一併讀回其 Air Flow 參數放進 EquipmentAirFlowReadBack（附 IsReadOnly 供核對是否唯讀；若該族群同名參數有多個，Ambiguous=true 且讀取的是 Revit GetParameters() 回傳的第一筆，比對結果依 Revit 文件為隨機且可能變動）。兩者都拆成 Found/DisplayValue（顯示值）/RawValue（內部值）/CalculationValid/IsReadOnly/Ambiguous/Note 欄位，互不補值。回傳另附 ActualMemberCount（系統實際成員數，讀不到為 null）與 ExpectedMemberCount（= SuccessCount；Revit API 文件明載 MEPSystem.Elements 不含 base equipment 或 panel，故預期成員數只算風口成功筆數、不含設備）供交叉比對，不一致時 MemberCountMismatch=true。設備是否已掛上系統由獨立欄位 BaseEquipmentAttached 回報（true/false；交易非 Committed 或讀取失敗時為 null，不補值），不混進成員數比對。整批在單一 Transaction 內完成；systemName 有給時嘗試命名，但 Revit 要求系統名稱在專案內唯一，撞名時系統仍會建立並保留 Revit 自動產生的名稱，命名失敗的原因放在 SystemNameError（不會整批 rollback），你要求的原始名稱回報在 SystemNameRequested。回傳的 CommitStatus 是 Transaction.Commit() 的實際回傳狀態，Success 欄位同時要求 CommitStatus='Committed' 且所有風口都成功；CommitStatus 非 Committed 時 CommitError 會說明、且不會讀回任何流量或系統成員資訊（避免對已回滾的元素讀值）。TerminalCount 是輸入 terminalIds 的總筆數（不論成敗）；SuccessCount／FailureCount 分別是成功／失敗筆數，兩者相加等於 TerminalCount。FailureCount=0 不等於整體 Success=true——即使所有風口都解析成功，只要 CommitStatus 不是 'Committed'，Success 仍為 false，請兩個欄位一起看。本工具的 MCP timeout 為 30 秒且逾時不會回滾——若逾時，Revit 端交易仍可能已提交，請務必用 query_elements_with_filter 或 get_element_info 核對模型實際狀態後再重試。直接重試會失敗——第一次已提交時，設備與風口的 Connector 已隸屬該系統，本工具會在設備端直接中止、或全部風口都記為失敗後因無可用成員而整體報錯（與 systemName 是否重複無關；名稱撞名本身不會讓呼叫失敗，只會填 SystemNameError）。作用視圖為明細表時，Revit 會在每次模型變更後重算整張表，依 domain/tool-capability-boundary.md L17 實測這會顯著提高逾時機率，回傳的 PerformanceWarning 會提醒（不擋執行），建議先用 set_active_view 切到一般平面圖再執行；回傳附 ElapsedMs 供核對耗時。",
         inputSchema: {

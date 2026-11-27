@@ -3,9 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Tools 索引（225 個）· BIM_MCP</title>
-<meta property="og:title" content="RevitMCP Tools 索引：225 個執行層工具">
-<meta property="og:description" content="225 個 MCP 工具 × 唯讀/寫入標註 × 來源模組。Tool 是執行層，方法在 Domain、編排在 Skill。">
+<title>Tools 索引（227 個）· BIM_MCP</title>
+<meta property="og:title" content="RevitMCP Tools 索引：227 個執行層工具">
+<meta property="og:description" content="227 個 MCP 工具 × 唯讀/寫入標註 × 來源模組。Tool 是執行層，方法在 Domain、編排在 Skill。">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Noto+Sans+TC:wght@300;400;600;700;800&display=swap">
@@ -89,17 +89,17 @@
 </nav>
 
 <header class="bim-hero">
-  <div class="bim-hero-eyebrow">TOOLS INDEX <span class="accent">225 個</span></div>
+  <div class="bim-hero-eyebrow">TOOLS INDEX <span class="accent">227 個</span></div>
   <h1 class="bim-hero-title">Tools · <span class="accent">執行層</span><br>模型上真正被動到的那一下</h1>
-  <p class="bim-hero-sub">Tool 是<strong>執行</strong>。它不決定方法，也不決定順序——方法在 <a href="domain-index.html">Domain</a>，順序在 <a href="skills-index.html">Skill</a>。這一頁把 225 個工具攤開，讓你看得到「有什麼」以及「哪些會動到模型」。</p>
+  <p class="bim-hero-sub">Tool 是<strong>執行</strong>。它不決定方法，也不決定順序——方法在 <a href="domain-index.html">Domain</a>，順序在 <a href="skills-index.html">Skill</a>。這一頁把 227 個工具攤開，讓你看得到「有什麼」以及「哪些會動到模型」。</p>
 </header>
 
 <section class="bim-section">
   <h2 class="bim-section-title">先看懂三個標記</h2>
   <p>每張卡右上角的標記來自工具自己宣告的 <code>annotations</code>，不是這一頁另外標的——閘門 <code>9-1</code> 會驗證它們與程式碼一致。</p>
   <ul>
-    <li><strong>唯讀</strong>（88 個）——只讀不寫。跑錯了不會留下痕跡，可以放心探索。</li>
-    <li><strong>會寫入</strong>（131 個）——會在 Transaction 裡改模型，但不刪除既有內容。可以 Undo，但會進 Revit 的復原堆疊。</li>
+    <li><strong>唯讀</strong>（89 個）——只讀不寫。跑錯了不會留下痕跡，可以放心探索。</li>
+    <li><strong>會寫入</strong>（132 個）——會在 Transaction 裡改模型，但不刪除既有內容。可以 Undo，但會進 Revit 的復原堆疊。</li>
     <li><strong>破壞性</strong>（6 個）——刪除或不可逆地取代既有內容：<code>copy_room_ceilings_with_lighting · curate_mep_sizes · dedup_detail_elements_in_view · delete_element · rfa_delete_elements · rfa_delete_parameter</code>。這份名單是白名單，程式碼裡多一個就會被閘門擋下。</li>
   </ul>
   <p style="color:var(--text-muted);font-size:13px;">「唯讀」是工具作者的宣告，不是執行時的沙箱。它告訴你這支工具<em>設計上</em>不寫入，不是保證它<em>不可能</em>寫入。</p>
@@ -115,18 +115,18 @@
         <tr><td><strong>A</strong></td><td>基礎與查詢</td><td class="num">26</td><td>讀模型、找元素、問參數，也含少數寫入前置（載入共用參數）。</td></tr>
         <tr><td><strong>B</strong></td><td>建模與構件</td><td class="num">74</td><td>產生或修改實體構件：牆、柱、樑、帷幕、地形、IFC 同步，以及在族群檔（.rfa）內建模。</td></tr>
         <tr><td><strong>C</strong></td><td>房間與空間</td><td class="num">20</td><td>房間邊界、編號、面積、走廊、施工架周長。</td></tr>
-        <tr><td><strong>D</strong></td><td>MEP 與碰撞</td><td class="num">17</td><td>風管系統、空間代表點、套管開孔、CSA 干涉。</td></tr>
+        <tr><td><strong>D</strong></td><td>MEP 與碰撞</td><td class="num">19</td><td>風管系統、空間代表點、套管開孔、CSA 干涉。</td></tr>
         <tr><td><strong>E</strong></td><td>法規檢核</td><td class="num">13</td><td>排煙、偵煙、樓梯——有法源、有判準的檢查。</td></tr>
         <tr><td><strong>F</strong></td><td>視圖與圖紙</td><td class="num">30</td><td>建視圖、裁剪、圖紙配置、視埠定位、跨專案複製。</td></tr>
         <tr><td><strong>G</strong></td><td>標註與詳圖</td><td class="num">25</td><td>尺寸、詳圖元件、填充區域、圖例、明細表、文字。</td></tr>
         <tr><td><strong>H</strong></td><td>視覺化</td><td class="num">20</td><td>上色、覆寫、隱藏顯示，也含材質與 Type 建構。</td></tr>
     </tbody>
   </table>
-  <p style="color:var(--text-muted);font-size:13px;">分類是 44 個來源模組的一個分割——每個模組恰好屬於一類，八類加總等於 225。這一頁由 <code>registerRevitTools()</code> 產生，不是手寫的。</p>
+  <p style="color:var(--text-muted);font-size:13px;">分類是 44 個來源模組的一個分割——每個模組恰好屬於一類，八類加總等於 227。這一頁由 <code>registerRevitTools()</code> 產生，不是手寫的。</p>
 </section>
 
 <section class="bim-section">
-  <h2 class="bim-section-title">225 個工具 · 依用途分組</h2>
+  <h2 class="bim-section-title">227 個工具 · 依用途分組</h2>
 
     <div class="cat-header">A · 基礎與查詢（26 個）</div>
     <p class="cat-blurb">讀模型、找元素、問參數，多數工作的第一步；也包含少數寫入型前置工具（如載入共用參數檔 load_shared_parameters）。</p>
@@ -1337,7 +1337,7 @@
         <div class="tool-desc">依房間範圍偵測同樓層天花板，讀取天花板類型標記，預覽或寫回房間參數（預設：天花板塗層）以更新粉刷明細表。</div>
       </div>
     </div>
-    <div class="cat-header">D · MEP 與碰撞（17 個）</div>
+    <div class="cat-header">D · MEP 與碰撞（19 個）</div>
     <p class="cat-blurb">風管系統、空間代表點、套管開孔、CSA 干涉。</p>
     <div class="tool-card" id="add_pipe_cap" data-tool="add_pipe_cap">
       <div>
@@ -1409,6 +1409,16 @@
         <div class="tool-desc">把專案中已載入的可編輯族群另存為 .rfa 檔到指定資料夾,建立可重用元件庫。預設匯出管配件(OST_PipeFitting)與管附件(OST_PipeAccessory)。自動依類別建立子資料夾;subFolderBySeries=true 時再依族群名稱系列(CIP/DWV/碳鋼.../)細分。略過系統族群、現地(in-place)與不可編輯族群。</div>
       </div>
     </div>
+    <div class="tool-card" id="find_host_at_point" data-tool="find_host_at_point">
+      <div>
+        <div class="tool-name">find_host_at_point</div>
+        <div class="tool-flags"><span class="tool-badge readonly">唯讀</span></div>
+        <div class="tool-module">mep-tools</div>
+      </div>
+      <div>
+        <div class="tool-desc">找平面點的放置主體：天花板底面或樓板頂面以鉛直線求交（與 place_family_instances 帶 hostId 的判定相同），牆則依到位置線的距離排序，標出是否為可放置的直線、非帷幕牆與點在牆的哪一側；回傳建議主體與樓層的 ProjectElevation。只做幾何查詢，不開交易。</div>
+      </div>
+    </div>
     <div class="tool-card" id="get_connector_info" data-tool="get_connector_info">
       <div>
         <div class="tool-name">get_connector_info</div>
@@ -1477,6 +1487,16 @@
       </div>
       <div>
         <div class="tool-desc">回傳每個 Revit Space（OST_MEPSpaces）的代表點座標（mm）。這是本專案第一個支援 Space 品類的工具——get_room_info 等既有工具只吃 OST_Rooms，傳 Space 進去會 cast 失敗。供後續自動放置元件（如風口）使用。代表點依序嘗試 LocationPoint → BoundingBox 中心 → BoundingBox 內網格取樣，每一步都用 Space.IsPointInSpace 驗證是否真的落在空間內（凹形空間的 BoundingBox 中心可能落在空間外），全部失敗則回傳 null 並標示 PointSource=&#x27;None&#x27;，不做靜默 fallback。也回傳 BoundedHeight（= Volume / Area，可用來估算前期天花高度）。未放置或未封閉的 Space 仍會列出，但標示 IsPlaced=false 且幾何欄位為 null；IsPlaced=false 時可再看 HasLocation 與 IsEnclosed 區分「根本沒放置」與「已放置但未封閉（unenclosed）」這兩種處置方式完全不同的狀況。</div>
+      </div>
+    </div>
+    <div class="tool-card" id="load_family_from_path" data-tool="load_family_from_path">
+      <div>
+        <div class="tool-name">load_family_from_path</div>
+        <div class="tool-flags"><span class="tool-badge write">會寫入</span></div>
+        <div class="tool-module">mep-tools</div>
+      </div>
+      <div>
+        <div class="tool-desc">把磁碟上的 .rfa 直接載入專案（Document.LoadFamily），不開族群編輯器；同名族群預設沿用、指定才重新載入。回傳族群 ID、類別、放置型式與每個類型的長度參數，供複製類型調尺寸後放置。</div>
       </div>
     </div>
     <div class="tool-card" id="place_family_instances" data-tool="place_family_instances">
@@ -2408,7 +2428,7 @@
     <a href="../index.html" class="bim-footer-btn">回 BIM_MCP 首頁</a>
   </div>
   <p>BIM_MCP · reference / tools-index</p>
-  <p style="font-size:11px;color:var(--text-faint);margin-top:6px;">225 個 MCP 工具完整索引，由 registerRevitTools() 產生；唯讀/寫入標註取自工具自身 annotations。</p>
+  <p style="font-size:11px;color:var(--text-faint);margin-top:6px;">227 個 MCP 工具完整索引，由 registerRevitTools() 產生；唯讀/寫入標註取自工具自身 annotations。</p>
 </footer>
 
 <script src="../shared.js"></script>
