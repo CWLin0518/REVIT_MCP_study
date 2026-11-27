@@ -37,9 +37,11 @@ export async function executeRevitTool(
     const LONG_TRANSACTION_COMMANDS = new Set(["set_wall_location_lines"]);
     // 影像匯出：大視圖或高解析度時 ExportImage 可能超過 30 秒
     const IMAGE_EXPORT_COMMANDS = new Set(["export_view_image"]);
+    // export_view_image may export twice (the second time up to 15000 px wide) when annotations widen the image.
     const timeoutMs = LONG_TRANSACTION_COMMANDS.has(commandName)
         ? 600000
-        : CROSS_DOC_COMMANDS.has(commandName) || IMAGE_EXPORT_COMMANDS.has(commandName) ? 120000 : 30000;
+        : IMAGE_EXPORT_COMMANDS.has(commandName) ? 300000
+        : CROSS_DOC_COMMANDS.has(commandName) ? 120000 : 30000;
 
     // 發送命令到 Revit
     const response = await client.sendCommand(commandName, args, timeoutMs);

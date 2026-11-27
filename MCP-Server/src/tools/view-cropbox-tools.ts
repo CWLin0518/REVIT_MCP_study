@@ -28,9 +28,10 @@ export const viewCropBoxTools: Tool[] = [
     },
     {
         name: "export_view_image",
-        description: "Export a plan view or region to PNG for remote preview. Supports floor, ceiling, structural and area plans. Does not change the model: a temporary dependent duplicate is cropped to the region + margin (annotation crop off, crop frame hidden), exported with ImageExportOptions, and the whole TransactionGroup is rolled back; only the PNG in outputDir remains. " +
+        description: "Export a plan view or region to PNG for remote preview. Supports floor, ceiling, structural and area plans. Does not change the model: a temporary dependent duplicate is cropped to the region + margin (crop frame hidden), exported with ImageExportOptions, and the whole TransactionGroup is rolled back; only the PNG in outputDir remains. " +
             "Region (at most one): grids {x:[a,b], y:[c,d]} = rectangle bounded by those grid lines (vertical/horizontal decided from geometry; swapped with a warning if given the other way), roomNumber / roomId, areaId, or bboxMm {minX,minY,maxX,maxY} in project internal coordinates (mm). Omitted = the view's current crop (marginMm then defaults to 0). " +
-            "Response (lengths in mm): imagePath, pixelWidth, pixelHeight, view {id,name,levelName,scale}, crop {minX,minY,maxX,maxY} = the extent the image covers, modelCrop = crop box actually set, viewRight / viewUp, mapping = 'px = (x - crop.minX) / (crop.maxX - crop.minX) * pixelWidth; py = (crop.maxY - y) / (crop.maxY - crop.minY) * pixelHeight', mappingCheck {status: outline_matches_crop | outline_extends_crop | aspect_mismatch | unverified}, region {type,label,outline}, origin {x,y,label} (grids: top-left grid intersection in image space, e.g. 'C/4'; otherwise top-left of the region bbox), grids [{name,start,end}] clipped to crop, warnings. " +
+            "Annotations (grid heads, dimensions, tags) extend past the model crop and widen what Revit exports; in that case the view is re-exported larger so the region + margin gets about pixelWidth px (total export capped at 15000 px, with a warning) and the PNG is cropped to it, so the image always covers the region + margin. " +
+            "Response (lengths in mm): imagePath, pixelWidth, pixelHeight (of the final PNG), view {id,name,levelName,scale}, crop {minX,minY,maxX,maxY} = the extent the image covers (the model crop snapped to whole pixels after cropping), modelCrop = crop box actually set, exportedExtent = the extent Revit's export covered before cropping (diagnostic), viewRight / viewUp, mapping = 'px = (x - crop.minX) / (crop.maxX - crop.minX) * pixelWidth; py = (crop.maxY - y) / (crop.maxY - crop.minY) * pixelHeight', mappingCheck {status: cropped_to_model_crop | outline_matches_crop | outline_extends_crop | aspect_mismatch | unverified, exportPixelSize, cropPixelRect, gridPixelCheck {grid, expectedPx, observedPx, offsetPx, result: ok | offset | inconclusive}}, region {type,label,outline}, origin {x,y,label} (grids: top-left grid intersection in image space, e.g. 'C/4'; otherwise top-left of the region bbox), grids [{name,start,end}] clipped to crop, warnings. " +
             "For an unrotated view these are project internal XY. If the view is rotated, crop/outline/origin/grids are in the view-aligned frame x' = X*viewRight.x + Y*viewRight.y, y' = X*viewUp.x + Y*viewUp.y (a warning says so) and cropWorldCorners gives the extent in internal XY.",
         inputSchema: {
             type: "object",
@@ -65,7 +66,13 @@ export const viewCropBoxTools: Tool[] = [
                     },
                 },
                 marginMm: { type: "number", default: 1000, description: "Margin added around the region (mm). Default 1000; 0 when no region is given." },
-                pixelWidth: { type: "number", default: 2000, description: "Image width in pixels (200-15000); height follows the crop aspect." },
+                pixelWidth: { type: "number", default: 2000, description: "Width in pixels of the region + margin in the final image (200-15000); height follows its aspect." },
+                annotations: {
+                    type: "string",
+                    enum: ["keep", "hideOutsideRegion"],
+                    default: "keep",
+                    description: "keep (default) = annotation crop off, every annotation is drawn and the image is cropped to the region + margin afterwards (grid heads outside it are cut off). hideOutsideRegion = annotation crop on with the smallest offset Revit accepts, so annotations outside the region are hidden and the export needs fewer pixels.",
+                },
                 outputDir: { type: "string", description: "Absolute output folder; created if missing. File name: <sanitized view name>_<yyyyMMdd_HHmmss>.png" },
             },
             required: ["outputDir"],

@@ -7,6 +7,7 @@ using System.Linq;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Architecture;
 using Newtonsoft.Json.Linq;
+using WpfImaging = System.Windows.Media.Imaging;
 
 #if REVIT2025_OR_GREATER
 using IdType = System.Int64;
@@ -68,6 +69,10 @@ namespace RevitMCP.Core
             bool marginGiven = marginTok != null && marginTok.Type != JTokenType.Null;
             double marginMm = marginGiven ? marginTok.Value<double>() : 1000.0;
             if (marginMm < 0) throw new Exception("marginMm must be >= 0.");
+
+            string annotationMode = parameters["annotations"]?.Value<string>() ?? "keep";
+            if (annotationMode != "keep" && annotationMode != "hideOutsideRegion")
+                throw new Exception("annotations must be 'keep' or 'hideOutsideRegion'.");
 
             ViewPlan view = VieResolveView(doc, parameters, warnings);
 
@@ -138,16 +143,25 @@ namespace RevitMCP.Core
             double marginFt = marginMm / VieMmPerFt;
 
             // ---- temporary view, crop, export (always rolled back) ----
+            //
+            // Annotations (grid heads, dimension strings, tags) are not clipped by the model crop, so the
+            // exported image usually covers MORE than the crop box. Live testing showed that View.Outline
+            // x scale is then exactly the extent the PNG covers. Instead of handing the caller a huge
+            // extent in which the requested region is a few hundred pixels wide, the image is re-exported
+            // so that the model-crop part gets ~pixelWidth px and then cropped to that part's pixel
+            // rectangle. The returned crop is the pixel-snapped model crop, so the mapping stays exact.
             string tmpDir = Path.Combine(outputDir, ".export_tmp_" + Guid.NewGuid().ToString("N"));
             string exportedTmpFile = null;
             string tempStrategy = null;
             VieFrame frame = srcFrame;
-            VieBox modelCrop = null, extent = null;
-            var gridsOut = new JArray();
+            VieBox modelCrop = null, extent = null, exportedExtent = null;
+            var gridData = new List<Tuple<string, double[], double[]>>();
             JObject mappingCheck = new JObject();
-            double outlineW = 0, outlineH = 0;
             BoundingBoxUV viewOutline = null;
             int viewScale = view.Scale;
+            string status = "unverified";
+            int imgW = 0, imgH = 0, exportWidth = pixelWidth;
+            int[] cropRect = null; // x, y, w, h of the model crop inside the exported PNG
 
             try
             {
@@ -182,15 +196,22 @@ namespace RevitMCP.Core
 
                             exportView.CropBoxActive = true;
                             exportView.CropBoxVisible = false;
+                            ViewCropRegionShapeManager mgr = null;
                             try
                             {
-                                ViewCropRegionShapeManager mgr = exportView.GetCropRegionShapeManager();
+                                mgr = exportView.GetCropRegionShapeManager();
                                 if (mgr != null && mgr.ShapeSet) mgr.RemoveCropRegionShape();
                             }
                             catch (Exception ex) { warnings.Add("Could not reset a non-rectangular crop shape: " + ex.Message); }
 
                             Parameter ac = exportView.get_Parameter(BuiltInParameter.VIEWER_ANNOTATION_CROP_ACTIVE);
-                            if (ac != null && !ac.IsReadOnly) ac.Set(0);
+                            if (annotationMode == "hideOutsideRegion")
+                            {
+                                if (ac != null && !ac.IsReadOnly) ac.Set(1);
+                                else warnings.Add("Annotation crop could not be turned on; annotations outside the region are kept.");
+                                VieMinimizeAnnotationCrop(mgr, warnings);
+                            }
+                            else if (ac != null && !ac.IsReadOnly) ac.Set(0);
 
                             // frame -> crop-local: local.X = x' - O.right, local.Y = y' - O.up
                             double[] o = frame.Of(tf.Origin);
@@ -216,8 +237,7 @@ namespace RevitMCP.Core
                         viewScale = exportView.Scale;
                         try { viewOutline = exportView.Outline; } catch { viewOutline = null; }
 
-                        // Grids visible in the temporary view (its crop = the exported extent).
-                        var gridData = new List<Tuple<string, double[], double[]>>();
+                        // Grids visible in the temporary view.
                         foreach (Grid g in new FilteredElementCollector(doc, exportView.Id).OfClass(typeof(Grid)).Cast<Grid>())
                         {
                             if (g.IsCurved) continue;
@@ -233,31 +253,55 @@ namespace RevitMCP.Core
                             gridData.Add(Tuple.Create(g.Name, frame.Of(line.GetEndPoint(0)), frame.Of(line.GetEndPoint(1))));
                         }
 
-                        Directory.CreateDirectory(tmpDir);
-                        var opts = new ImageExportOptions
+                        // ---- first export + mapping verification ----
+                        exportedTmpFile = VieExportPng(doc, exportView.Id, Path.Combine(tmpDir, "a"), pixelWidth);
+                        VieReadPngSize(exportedTmpFile, out imgW, out imgH);
+
+                        string outlineNote;
+                        status = VieClassifyOutline(viewOutline, viewScale, modelCrop, out extent, out outlineNote);
+                        bool aspectOk = VieAspectOk(imgW, imgH, extent);
+                        if (status == "outline_extends_crop" && !aspectOk)
                         {
-                            ExportRange = ExportRange.SetOfViews,
-                            FilePath = Path.Combine(tmpDir, "export"),
-                            ZoomType = ZoomFitType.FitToPage,
-                            FitDirection = FitDirectionType.Horizontal,
-                            PixelSize = pixelWidth,
-                            HLRandWFViewsFileType = ImageFileType.PNG,
-                            ShadowViewsFileType = ImageFileType.PNG,
-                            ImageResolution = ImageResolution.DPI_150
-                        };
-                        opts.SetViewsAndSheets(new List<ElementId> { exportView.Id });
-                        doc.ExportImage(opts);
+                            // Outline contains the crop but the PNG does not have its proportions: the
+                            // outline is not what was exported, so neither box can be trusted.
+                            status = "unverified";
+                            extent = modelCrop;
+                            aspectOk = VieAspectOk(imgW, imgH, extent);
+                        }
+                        if (status == "unverified" && outlineNote != null) warnings.Add(outlineNote);
+                        if (!aspectOk)
+                        {
+                            warnings.Add($"Image aspect {(double)imgW / imgH:F4} differs from the exported-extent aspect {extent.W / extent.H:F4}; the pixel mapping is likely off (annotations outside the crop or export padding). Check against a known grid intersection.");
+                            if (status != "unverified") status = "aspect_mismatch";
+                        }
 
-                        exportedTmpFile = Directory.GetFiles(tmpDir)
-                            .Where(f => string.Equals(Path.GetExtension(f), ".png", StringComparison.OrdinalIgnoreCase))
-                            .OrderByDescending(f => File.GetLastWriteTimeUtc(f))
-                            .FirstOrDefault();
-                        if (exportedTmpFile == null)
-                            throw new Exception("Revit ExportImage finished but no PNG was written.");
-
-                        // stash grid data for clipping after the extent is known
-                        foreach (var gd in gridData)
-                            gridsOut.Add(new JArray(gd.Item1, gd.Item2[0], gd.Item2[1], gd.Item3[0], gd.Item3[1]));
+                        // ---- annotations widened the image: re-export larger so the crop part gets ~pixelWidth px ----
+                        if (status == "outline_extends_crop")
+                        {
+                            int required = (int)Math.Ceiling(pixelWidth * extent.W / modelCrop.W);
+                            if (required > imgW + 2)
+                            {
+                                exportWidth = Math.Min(required, VieMaxPixels);
+                                if (exportWidth < required)
+                                    warnings.Add($"Annotations around the region widen the export to {VieMm(extent.W)} mm; the {VieMaxPixels} px export cap leaves the region about {(int)Math.Floor(VieMaxPixels * modelCrop.W / extent.W)} px wide instead of {pixelWidth}. Use annotations='hideOutsideRegion' or a smaller pixelWidth.");
+                                string hi = VieExportPng(doc, exportView.Id, Path.Combine(tmpDir, "b"), exportWidth);
+                                int hw, hh;
+                                VieReadPngSize(hi, out hw, out hh);
+                                if (VieAspectOk(hw, hh, extent))
+                                {
+                                    exportedTmpFile = hi;
+                                    imgW = hw; imgH = hh;
+                                }
+                                else
+                                {
+                                    warnings.Add($"The {exportWidth} px re-export came back {hw} x {hh}, which does not match the exported extent; the {imgW} px export was cropped instead (the region has fewer pixels than requested).");
+                                    exportWidth = pixelWidth;
+                                }
+                            }
+                            cropRect = VieCropRect(extent, modelCrop, imgW, imgH);
+                            if (cropRect == null)
+                                warnings.Add("The model crop maps to less than one pixel of the exported image; returned the uncropped image.");
+                        }
                     }
                     finally
                     {
@@ -265,63 +309,50 @@ namespace RevitMCP.Core
                     }
                 }
 
-                // ---- final file ----
+                // ---- final file (cropped to the model crop when annotations widened the export) ----
                 string baseName = VieSanitize(view.Name) + "_" + DateTime.Now.ToString("yyyyMMdd_HHmmss", CultureInfo.InvariantCulture);
                 string finalPath = Path.Combine(outputDir, baseName + ".png");
                 for (int i = 1; File.Exists(finalPath); i++) finalPath = Path.Combine(outputDir, baseName + "_" + i + ".png");
-                File.Move(exportedTmpFile, finalPath);
 
-                int imgW, imgH;
-                VieReadPngSize(finalPath, out imgW, out imgH);
-
-                // ---- exported extent / mapping verification ----
-                extent = modelCrop;
-                double imgAspect = (double)imgW / imgH;
-                double aspectTol = 0.005 + 2.0 / Math.Min(imgW, imgH);
-                string status;
-                if (viewOutline != null)
+                exportedExtent = extent;
+                int exportedW = imgW, exportedH = imgH;
+                WpfImaging.BitmapSource finalBmp;
+                if (cropRect != null)
                 {
-                    outlineW = (viewOutline.Max.U - viewOutline.Min.U) * viewScale;
-                    outlineH = (viewOutline.Max.V - viewOutline.Min.V) * viewScale;
-                    var olBox = new VieBox
+                    finalBmp = VieCropPngTo(exportedTmpFile, finalPath, cropRect);
+                    double sx = imgW / extent.W, sy = imgH / extent.H;
+                    // pixel-snapped model crop: exactly the area the cropped PNG covers
+                    extent = new VieBox
                     {
-                        MinX = viewOutline.Min.U * viewScale, MinY = viewOutline.Min.V * viewScale,
-                        MaxX = viewOutline.Max.U * viewScale, MaxY = viewOutline.Max.V * viewScale
+                        MinX = exportedExtent.MinX + cropRect[0] / sx,
+                        MaxX = exportedExtent.MinX + (cropRect[0] + cropRect[2]) / sx,
+                        MaxY = exportedExtent.MaxY - cropRect[1] / sy,
+                        MinY = exportedExtent.MaxY - (cropRect[1] + cropRect[3]) / sy
                     };
-                    double tolFt = Math.Max(0.01, 0.002 * Math.Max(modelCrop.W, modelCrop.H));
-                    bool sizeMatches = Math.Abs(outlineW - modelCrop.W) <= tolFt && Math.Abs(outlineH - modelCrop.H) <= tolFt;
-                    bool contains = olBox.MinX <= modelCrop.MinX + tolFt && olBox.MinY <= modelCrop.MinY + tolFt
-                                    && olBox.MaxX >= modelCrop.MaxX - tolFt && olBox.MaxY >= modelCrop.MaxY - tolFt;
-                    if (sizeMatches)
-                        status = "outline_matches_crop";
-                    else if (contains && Math.Abs(imgAspect - olBox.W / olBox.H) / (olBox.W / olBox.H) <= aspectTol)
-                    {
-                        status = "outline_extends_crop";
-                        extent = olBox;
-                        warnings.Add("Annotations (e.g. grid heads) extend beyond the model crop, so the image covers more than the crop. 'crop' is the larger exported extent derived from View.Outline (paper outline x scale); 'modelCrop' is the crop box that was set. Verify on a live test.");
-                    }
-                    else
-                    {
-                        status = "unverified";
-                        warnings.Add($"Mapping unverified: View.Outline x scale = {VieMm(outlineW)} x {VieMm(outlineH)} mm, crop = {VieMm(modelCrop.W)} x {VieMm(modelCrop.H)} mm. The mapping assumes the image edges are the crop edges; check against a known grid intersection.");
-                    }
+                    imgW = cropRect[2]; imgH = cropRect[3];
+                    status = "cropped_to_model_crop";
+                    mappingCheck["exportPixelSize"] = new JObject { ["w"] = exportedW, ["h"] = exportedH };
+                    mappingCheck["cropPixelRect"] = new JObject { ["x"] = cropRect[0], ["y"] = cropRect[1], ["w"] = cropRect[2], ["h"] = cropRect[3] };
                 }
                 else
                 {
-                    status = "unverified";
-                    warnings.Add("View.Outline was unavailable; the mapping assumes the image edges are the crop edges.");
+                    File.Move(exportedTmpFile, finalPath);
+                    finalBmp = VieLoadPng(finalPath);
+                    if (status == "outline_extends_crop")
+                        warnings.Add("Annotations extend beyond the model crop, so the image covers more than the crop. 'crop' is the larger exported extent derived from View.Outline (paper outline x scale); 'modelCrop' is the crop box that was set.");
                 }
+
+                double imgAspect = (double)imgW / imgH;
                 double extentAspect = extent.W / extent.H;
-                if (Math.Abs(imgAspect - extentAspect) / extentAspect > aspectTol)
-                {
-                    warnings.Add($"Image aspect {imgAspect:F4} differs from the exported-extent aspect {extentAspect:F4}; the pixel mapping is likely off (annotations outside the crop or export padding). Check against a known grid intersection.");
-                    if (status != "unverified") status = "aspect_mismatch";
-                }
                 mappingCheck["status"] = status;
                 mappingCheck["imageAspect"] = Math.Round(imgAspect, 5);
                 mappingCheck["extentAspect"] = Math.Round(extentAspect, 5);
                 if (viewOutline != null)
-                    mappingCheck["outlineTimesScaleMm"] = new JObject { ["w"] = VieMm(outlineW), ["h"] = VieMm(outlineH) };
+                    mappingCheck["outlineTimesScaleMm"] = new JObject
+                    {
+                        ["w"] = VieMm((viewOutline.Max.U - viewOutline.Min.U) * viewScale),
+                        ["h"] = VieMm((viewOutline.Max.V - viewOutline.Min.V) * viewScale)
+                    };
 
                 // ---- response ----
                 bool axisAligned = Math.Abs(frame.Right.X - 1) < 1e-6 && Math.Abs(frame.Up.Y - 1) < 1e-6;
@@ -330,21 +361,39 @@ namespace RevitMCP.Core
 
                 var outline = new JArray(outlineWorld.Select(p => { var f = frame.Of(p); return VieXY(f[0], f[1]); }));
                 double[] originF;
+                string originLabelOut = originLabel;
                 if (originWorld != null) originF = frame.Of(originWorld);
                 else
                 {
                     var rb = VieBoxOf(outlineWorld.Select(frame.Of));
                     originF = new[] { rb.MinX, rb.MaxY };
-                    originLabel = "top-left of region bbox";
+                    originLabelOut = "top-left of region bbox";
                 }
 
                 var grids = new JArray();
-                foreach (JArray gd in gridsOut)
+                var clippedGrids = new List<Tuple<string, double[], double[]>>();
+                foreach (var gd in gridData)
                 {
-                    double x0 = gd[1].Value<double>(), y0 = gd[2].Value<double>(), x1 = gd[3].Value<double>(), y1 = gd[4].Value<double>();
+                    double x0 = gd.Item2[0], y0 = gd.Item2[1], x1 = gd.Item3[0], y1 = gd.Item3[1];
                     if (VieClip(extent, ref x0, ref y0, ref x1, ref y1))
-                        grids.Add(new JObject { ["name"] = gd[0].Value<string>(), ["start"] = VieXY(x0, y0), ["end"] = VieXY(x1, y1) });
+                    {
+                        grids.Add(new JObject { ["name"] = gd.Item1, ["start"] = VieXY(x0, y0), ["end"] = VieXY(x1, y1) });
+                        clippedGrids.Add(Tuple.Create(gd.Item1, new[] { x0, y0 }, new[] { x1, y1 }));
+                    }
                 }
+
+                // Pixel-level sanity check: is a grid line where the mapping says it is?
+                try
+                {
+                    JObject gpc = VieGridPixelCheck(finalBmp, extent, clippedGrids);
+                    if (gpc != null)
+                    {
+                        mappingCheck["gridPixelCheck"] = gpc;
+                        if (gpc["result"]?.Value<string>() == "offset")
+                            warnings.Add($"Grid '{gpc["grid"]}' was found {gpc["offsetPx"]} px from where the mapping puts it; check the mapping against a known grid intersection.");
+                    }
+                }
+                catch (Exception ex) { mappingCheck["gridPixelCheck"] = new JObject { ["result"] = "error", ["message"] = ex.Message }; }
 
                 var cropCorners = new JArray(
                     new[] { new[] { extent.MinX, extent.MinY }, new[] { extent.MaxX, extent.MinY }, new[] { extent.MaxX, extent.MaxY }, new[] { extent.MinX, extent.MaxY } }
@@ -364,6 +413,7 @@ namespace RevitMCP.Core
                     },
                     ["crop"] = VieBoxJson(extent),
                     ["modelCrop"] = VieBoxJson(modelCrop),
+                    ["exportedExtent"] = VieBoxJson(exportedExtent),
                     ["cropWorldCorners"] = cropCorners,
                     ["frame"] = axisAligned ? "internal" : "view-aligned",
                     ["viewRight"] = new JObject { ["x"] = Math.Round(frame.Right.X, 6), ["y"] = Math.Round(frame.Right.Y, 6) },
@@ -371,8 +421,9 @@ namespace RevitMCP.Core
                     ["mapping"] = "px = (x - crop.minX) / (crop.maxX - crop.minX) * pixelWidth; py = (crop.maxY - y) / (crop.maxY - crop.minY) * pixelHeight",
                     ["mappingCheck"] = mappingCheck,
                     ["marginMm"] = marginMm,
+                    ["annotations"] = annotationMode,
                     ["region"] = new JObject { ["type"] = regionType, ["label"] = regionLabel, ["outline"] = outline },
-                    ["origin"] = new JObject { ["x"] = VieMm(originF[0]), ["y"] = VieMm(originF[1]), ["label"] = originLabel },
+                    ["origin"] = new JObject { ["x"] = VieMm(originF[0]), ["y"] = VieMm(originF[1]), ["label"] = originLabelOut },
                     ["grids"] = grids,
                     ["tempView"] = tempStrategy,
                     ["modelChanged"] = false,
@@ -384,6 +435,181 @@ namespace RevitMCP.Core
             {
                 try { if (Directory.Exists(tmpDir)) Directory.Delete(tmpDir, true); } catch { }
             }
+        }
+
+        private const int VieMaxPixels = 15000;
+
+        private static string VieExportPng(Document doc, ElementId viewId, string dir, int pixelWidth)
+        {
+            Directory.CreateDirectory(dir);
+            var opts = new ImageExportOptions
+            {
+                ExportRange = ExportRange.SetOfViews,
+                FilePath = Path.Combine(dir, "export"),
+                ZoomType = ZoomFitType.FitToPage,
+                FitDirection = FitDirectionType.Horizontal,
+                PixelSize = pixelWidth,
+                HLRandWFViewsFileType = ImageFileType.PNG,
+                ShadowViewsFileType = ImageFileType.PNG,
+                ImageResolution = ImageResolution.DPI_150
+            };
+            opts.SetViewsAndSheets(new List<ElementId> { viewId });
+            doc.ExportImage(opts);
+
+            string file = Directory.GetFiles(dir)
+                .Where(f => string.Equals(Path.GetExtension(f), ".png", StringComparison.OrdinalIgnoreCase))
+                .OrderByDescending(f => File.GetLastWriteTimeUtc(f))
+                .FirstOrDefault();
+            if (file == null) throw new Exception("Revit ExportImage finished but no PNG was written.");
+            return file;
+        }
+
+        // Compares View.Outline x scale (the paper extent of everything drawn, annotations included)
+        // with the model crop. Returns outline_matches_crop, outline_extends_crop or unverified; extent is
+        // the box the image is expected to cover.
+        private static string VieClassifyOutline(BoundingBoxUV outline, int scale, VieBox modelCrop, out VieBox extent, out string note)
+        {
+            extent = modelCrop;
+            note = null;
+            if (outline == null)
+            {
+                note = "View.Outline was unavailable; the mapping assumes the image edges are the crop edges.";
+                return "unverified";
+            }
+            var ol = new VieBox
+            {
+                MinX = outline.Min.U * scale, MinY = outline.Min.V * scale,
+                MaxX = outline.Max.U * scale, MaxY = outline.Max.V * scale
+            };
+            double tolFt = Math.Max(0.01, 0.002 * Math.Max(modelCrop.W, modelCrop.H));
+            if (Math.Abs(ol.W - modelCrop.W) <= tolFt && Math.Abs(ol.H - modelCrop.H) <= tolFt)
+                return "outline_matches_crop";
+            bool contains = ol.MinX <= modelCrop.MinX + tolFt && ol.MinY <= modelCrop.MinY + tolFt
+                            && ol.MaxX >= modelCrop.MaxX - tolFt && ol.MaxY >= modelCrop.MaxY - tolFt;
+            if (contains)
+            {
+                extent = ol;
+                return "outline_extends_crop";
+            }
+            note = $"Mapping unverified: View.Outline x scale = {VieMm(ol.W)} x {VieMm(ol.H)} mm, crop = {VieMm(modelCrop.W)} x {VieMm(modelCrop.H)} mm. The mapping assumes the image edges are the crop edges; check against a known grid intersection.";
+            return "unverified";
+        }
+
+        private static bool VieAspectOk(int w, int h, VieBox box)
+        {
+            double imgAspect = (double)w / h, boxAspect = box.W / box.H;
+            double tol = 0.005 + 2.0 / Math.Min(w, h);
+            return Math.Abs(imgAspect - boxAspect) / boxAspect <= tol;
+        }
+
+        // Pixel rectangle {x, y, w, h} of inner inside an image of w x h px covering outer; null if degenerate.
+        private static int[] VieCropRect(VieBox outer, VieBox inner, int w, int h)
+        {
+            double sx = w / outer.W, sy = h / outer.H;
+            int x0 = Math.Max(0, Math.Min(w, (int)Math.Round((inner.MinX - outer.MinX) * sx)));
+            int x1 = Math.Max(0, Math.Min(w, (int)Math.Round((inner.MaxX - outer.MinX) * sx)));
+            int y0 = Math.Max(0, Math.Min(h, (int)Math.Round((outer.MaxY - inner.MaxY) * sy)));
+            int y1 = Math.Max(0, Math.Min(h, (int)Math.Round((outer.MaxY - inner.MinY) * sy)));
+            if (x1 - x0 < 1 || y1 - y0 < 1) return null;
+            return new[] { x0, y0, x1 - x0, y1 - y0 };
+        }
+
+        // Annotation crop as tight as Revit allows (used by annotations = "hideOutsideRegion").
+        private static void VieMinimizeAnnotationCrop(ViewCropRegionShapeManager mgr, JArray warnings)
+        {
+            if (mgr == null) { warnings.Add("Annotation crop offsets could not be read; Revit's default offset is used."); return; }
+            foreach (double off in new[] { 1.0 / 304.8, 1.0 / 96.0, 1.0 / 48.0 })
+            {
+                try
+                {
+                    mgr.LeftAnnotationCropOffset = off;
+                    mgr.RightAnnotationCropOffset = off;
+                    mgr.TopAnnotationCropOffset = off;
+                    mgr.BottomAnnotationCropOffset = off;
+                    return;
+                }
+                catch { }
+            }
+            warnings.Add("Annotation crop offsets could not be reduced; Revit's default offset is used (the image is still cropped to the model crop).");
+        }
+
+        private static WpfImaging.BitmapSource VieLoadPng(string path)
+        {
+            using (var fs = File.OpenRead(path))
+            {
+                var dec = new WpfImaging.PngBitmapDecoder(fs, WpfImaging.BitmapCreateOptions.PreservePixelFormat | WpfImaging.BitmapCreateOptions.IgnoreColorProfile,
+                    WpfImaging.BitmapCacheOption.OnLoad);
+                WpfImaging.BitmapSource bmp = dec.Frames[0];
+                bmp.Freeze();
+                return bmp;
+            }
+        }
+
+        private static WpfImaging.BitmapSource VieCropPngTo(string srcPath, string dstPath, int[] r)
+        {
+            WpfImaging.BitmapSource src = VieLoadPng(srcPath);
+            var cropped = new WpfImaging.CroppedBitmap(src, new System.Windows.Int32Rect(r[0], r[1], r[2], r[3]));
+            cropped.Freeze();
+            var enc = new WpfImaging.PngBitmapEncoder();
+            enc.Frames.Add(WpfImaging.BitmapFrame.Create(cropped));
+            using (var fs = File.Create(dstPath)) enc.Save(fs);
+            return cropped;
+        }
+
+        // Looks for the grid line nearest the image centre (vertical or horizontal) within +-6 px of where
+        // the mapping puts it, by counting non-background pixels per column/row in that strip.
+        // Informational: result = "ok" | "offset" | "inconclusive"; null when no suitable grid is inside.
+        private static JObject VieGridPixelCheck(WpfImaging.BitmapSource bmp, VieBox crop, List<Tuple<string, double[], double[]>> grids)
+        {
+            int W = bmp.PixelWidth, H = bmp.PixelHeight;
+            const int win = 6;
+            Tuple<string, bool, double> best = null; // name, vertical, expected px (column or row)
+            double bestDist = double.MaxValue;
+            foreach (var g in grids)
+            {
+                double dx = g.Item3[0] - g.Item2[0], dy = g.Item3[1] - g.Item2[1];
+                double len = Math.Sqrt(dx * dx + dy * dy);
+                if (len < 1e-9) continue;
+                bool vertical = Math.Abs(dx) <= 1e-4 * len, horizontal = Math.Abs(dy) <= 1e-4 * len;
+                if (!vertical && !horizontal) continue;
+                double e = vertical ? (g.Item2[0] - crop.MinX) / crop.W * W : (crop.MaxY - g.Item2[1]) / crop.H * H;
+                int n = vertical ? W : H;
+                if (e < win + 2 || e > n - win - 2) continue;
+                double d = Math.Abs(e / n - 0.5);
+                if (d < bestDist) { bestDist = d; best = Tuple.Create(g.Item1, vertical, e); }
+            }
+            if (best == null) return null;
+
+            var px = new WpfImaging.FormatConvertedBitmap(bmp, System.Windows.Media.PixelFormats.Bgra32, null, 0);
+            bool vert = best.Item2;
+            int center = (int)Math.Floor(best.Item3);
+            int lo = Math.Max(0, center - win), hi = Math.Min((vert ? W : H) - 1, center + win);
+            int span = hi - lo + 1, length = vert ? H : W;
+            var rect = vert ? new System.Windows.Int32Rect(lo, 0, span, H) : new System.Windows.Int32Rect(0, lo, W, span);
+            int stride = rect.Width * 4;
+            var buf = new int[rect.Width * rect.Height];
+            px.CopyPixels(rect, buf, stride, 0);
+
+            int bg = buf.GroupBy(v => v).OrderByDescending(gr => gr.Count()).First().Key;
+            var counts = new int[span];
+            for (int r = 0; r < rect.Height; r++)
+                for (int c = 0; c < rect.Width; c++)
+                    if (buf[r * rect.Width + c] != bg) counts[vert ? c : r]++;
+            int bi = 0;
+            for (int i = 1; i < span; i++) if (counts[i] > counts[bi]) bi = i;
+            var sorted = counts.OrderBy(v => v).ToArray();
+            int median = sorted[span / 2];
+            double offset = Math.Round(lo + bi + 0.5 - best.Item3, 1);
+            bool prominent = counts[bi] >= 0.2 * length && counts[bi] >= 1.5 * Math.Max(1, median);
+            return new JObject
+            {
+                ["grid"] = best.Item1,
+                ["axis"] = vert ? "column" : "row",
+                ["expectedPx"] = Math.Round(best.Item3, 1),
+                ["observedPx"] = prominent ? (JToken)(lo + bi + 0.5) : JValue.CreateNull(),
+                ["offsetPx"] = prominent ? (JToken)offset : JValue.CreateNull(),
+                ["result"] = !prominent ? "inconclusive" : (Math.Abs(offset) <= 3 ? "ok" : "offset")
+            };
         }
 
         private ViewPlan VieResolveView(Document doc, JObject parameters, JArray warnings)
