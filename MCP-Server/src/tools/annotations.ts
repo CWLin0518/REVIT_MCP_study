@@ -78,6 +78,9 @@ export const DESTRUCTIVE_NAMES: Set<string> = new Set([
     "rfa_delete_parameter",
     // 會從作用中族群檔刪除元素與其連帶元素。預設 dryRun（試刪後回滾），重大連帶刪除需 force，但刪除本身不可逆。
     "rfa_delete_elements",
+    // existingPolicy='replace' 會刪除目標房間內完全包含的天花板與其上所請求類別的燈具後再複製。預設 skip、
+    // 預設 dryRun，刪除範圍逐一檢查連帶元素且不安全即拒絕，但刪除本身仍應對 host 誠實標示。
+    "copy_room_ceilings_with_lighting",
 ]);
 
 type ClassificationHints = Pick<ToolAnnotations, "readOnlyHint" | "destructiveHint"> & {

@@ -240,6 +240,12 @@ namespace RevitMCP.Core
                     case "create_room_interior_elevations":
                         result = CreateRoomInteriorElevations(parameters);
                         break;
+                    case "copy_room_ceilings_with_lighting":
+                        result = CopyRoomCeilingsWithLighting(parameters);
+                        break;
+                    case "redraw_room_ceilings_with_lighting":
+                        result = RedrawRoomCeilingsWithLighting(parameters);
+                        break;
                     case "sync_elevation_view_extents":
                         result = SyncElevationViewExtents(parameters);
                         break;

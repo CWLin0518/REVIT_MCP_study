@@ -3,9 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Tools 索引（222 個）· BIM_MCP</title>
-<meta property="og:title" content="RevitMCP Tools 索引：222 個執行層工具">
-<meta property="og:description" content="222 個 MCP 工具 × 唯讀/寫入標註 × 來源模組。Tool 是執行層，方法在 Domain、編排在 Skill。">
+<title>Tools 索引（224 個）· BIM_MCP</title>
+<meta property="og:title" content="RevitMCP Tools 索引：224 個執行層工具">
+<meta property="og:description" content="224 個 MCP 工具 × 唯讀/寫入標註 × 來源模組。Tool 是執行層，方法在 Domain、編排在 Skill。">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Noto+Sans+TC:wght@300;400;600;700;800&display=swap">
@@ -89,9 +89,9 @@
 </nav>
 
 <header class="bim-hero">
-  <div class="bim-hero-eyebrow">TOOLS INDEX <span class="accent">222 個</span></div>
+  <div class="bim-hero-eyebrow">TOOLS INDEX <span class="accent">224 個</span></div>
   <h1 class="bim-hero-title">Tools · <span class="accent">執行層</span><br>模型上真正被動到的那一下</h1>
-  <p class="bim-hero-sub">Tool 是<strong>執行</strong>。它不決定方法，也不決定順序——方法在 <a href="domain-index.html">Domain</a>，順序在 <a href="skills-index.html">Skill</a>。這一頁把 222 個工具攤開，讓你看得到「有什麼」以及「哪些會動到模型」。</p>
+  <p class="bim-hero-sub">Tool 是<strong>執行</strong>。它不決定方法，也不決定順序——方法在 <a href="domain-index.html">Domain</a>，順序在 <a href="skills-index.html">Skill</a>。這一頁把 224 個工具攤開，讓你看得到「有什麼」以及「哪些會動到模型」。</p>
 </header>
 
 <section class="bim-section">
@@ -99,8 +99,8 @@
   <p>每張卡右上角的標記來自工具自己宣告的 <code>annotations</code>，不是這一頁另外標的——閘門 <code>9-1</code> 會驗證它們與程式碼一致。</p>
   <ul>
     <li><strong>唯讀</strong>（87 個）——只讀不寫。跑錯了不會留下痕跡，可以放心探索。</li>
-    <li><strong>會寫入</strong>（130 個）——會在 Transaction 裡改模型，但不刪除既有內容。可以 Undo，但會進 Revit 的復原堆疊。</li>
-    <li><strong>破壞性</strong>（5 個）——刪除或不可逆地取代既有內容：<code>curate_mep_sizes · dedup_detail_elements_in_view · delete_element · rfa_delete_elements · rfa_delete_parameter</code>。這份名單是白名單，程式碼裡多一個就會被閘門擋下。</li>
+    <li><strong>會寫入</strong>（131 個）——會在 Transaction 裡改模型，但不刪除既有內容。可以 Undo，但會進 Revit 的復原堆疊。</li>
+    <li><strong>破壞性</strong>（6 個）——刪除或不可逆地取代既有內容：<code>copy_room_ceilings_with_lighting · curate_mep_sizes · dedup_detail_elements_in_view · delete_element · rfa_delete_elements · rfa_delete_parameter</code>。這份名單是白名單，程式碼裡多一個就會被閘門擋下。</li>
   </ul>
   <p style="color:var(--text-muted);font-size:13px;">「唯讀」是工具作者的宣告，不是執行時的沙箱。它告訴你這支工具<em>設計上</em>不寫入，不是保證它<em>不可能</em>寫入。</p>
 </section>
@@ -114,7 +114,7 @@
     <tbody>
         <tr><td><strong>A</strong></td><td>基礎與查詢</td><td class="num">26</td><td>讀模型、找元素、問參數，也含少數寫入前置（載入共用參數）。</td></tr>
         <tr><td><strong>B</strong></td><td>建模與構件</td><td class="num">74</td><td>產生或修改實體構件：牆、柱、樑、帷幕、地形、IFC 同步，以及在族群檔（.rfa）內建模。</td></tr>
-        <tr><td><strong>C</strong></td><td>房間與空間</td><td class="num">18</td><td>房間邊界、編號、面積、走廊、施工架周長。</td></tr>
+        <tr><td><strong>C</strong></td><td>房間與空間</td><td class="num">20</td><td>房間邊界、編號、面積、走廊、施工架周長。</td></tr>
         <tr><td><strong>D</strong></td><td>MEP 與碰撞</td><td class="num">17</td><td>風管系統、空間代表點、套管開孔、CSA 干涉。</td></tr>
         <tr><td><strong>E</strong></td><td>法規檢核</td><td class="num">13</td><td>排煙、偵煙、樓梯——有法源、有判準的檢查。</td></tr>
         <tr><td><strong>F</strong></td><td>視圖與圖紙</td><td class="num">29</td><td>建視圖、裁剪、圖紙配置、視埠定位、跨專案複製。</td></tr>
@@ -122,11 +122,11 @@
         <tr><td><strong>H</strong></td><td>視覺化</td><td class="num">20</td><td>上色、覆寫、隱藏顯示，也含材質與 Type 建構。</td></tr>
     </tbody>
   </table>
-  <p style="color:var(--text-muted);font-size:13px;">分類是 43 個來源模組的一個分割——每個模組恰好屬於一類，八類加總等於 222。這一頁由 <code>registerRevitTools()</code> 產生，不是手寫的。</p>
+  <p style="color:var(--text-muted);font-size:13px;">分類是 44 個來源模組的一個分割——每個模組恰好屬於一類，八類加總等於 224。這一頁由 <code>registerRevitTools()</code> 產生，不是手寫的。</p>
 </section>
 
 <section class="bim-section">
-  <h2 class="bim-section-title">222 個工具 · 依用途分組</h2>
+  <h2 class="bim-section-title">224 個工具 · 依用途分組</h2>
 
     <div class="cat-header">A · 基礎與查詢（26 個）</div>
     <p class="cat-blurb">讀模型、找元素、問參數，多數工作的第一步；也包含少數寫入型前置工具（如載入共用參數檔 load_shared_parameters）。</p>
@@ -1135,7 +1135,7 @@
         <div class="tool-desc">取消牆體與柱子等元素的幾何接合關係。常用於元素上色前的前置作業。</div>
       </div>
     </div>
-    <div class="cat-header">C · 房間與空間（18 個）</div>
+    <div class="cat-header">C · 房間與空間（20 個）</div>
     <p class="cat-blurb">房間邊界、編號、面積、走廊、施工架周長。</p>
     <div class="tool-card" id="analyze_corridor_width" data-tool="analyze_corridor_width">
       <div>
@@ -1217,6 +1217,16 @@
         <div class="tool-desc">Calculate sanitary fixture requirements by detecting the building type and applying the matching rule. This rule package currently supports C-1 factory/warehouse only; future building types should be added as separate rules. Output maps to the code table columns: building type, water closets, urinals, lavatories, and bathtubs/showers. Net area excludes stairs, elevators, air-raid shelter/refuge rooms, and parking spaces. This tool does not create or write Revit parameters.</div>
       </div>
     </div>
+    <div class="tool-card" id="copy_room_ceilings_with_lighting" data-tool="copy_room_ceilings_with_lighting">
+      <div>
+        <div class="tool-name">copy_room_ceilings_with_lighting</div>
+        <div class="tool-flags"><span class="tool-badge destructive">破壞性</span></div>
+        <div class="tool-module">room-ceiling-copy-tools</div>
+      </div>
+      <div>
+        <div class="tool-desc">依房號把來源房間內的原生天花板，連同掛在天花板上的燈具（預設 OST_LightingFixtures），複製到其他樓層的對應房間（例：A-206 → A-306、A-406）。平移量 = 房間完成面邊界中心差（XY）＋樓層高程差（Z），兩房間邊界在該平移下須吻合；房號查無或有歧義（階段／設計選項）即整批拒絕。天花板與燈具一律以樓層精確判定（天花板 LevelId = 房間樓層；燈具依其主體天花板的樓層），垂直容差只放寬搜尋範圍、不會納入相鄰樓層元素。只複製完全落在來源房間內的天花板，跨越邊界的天花板會讓該組對應拒絕；複製後天花板改掛目標樓層並逐一驗證主體、位置與包含關係，任一不符即回滾。目標房間既有內容（同樓層且在該房間階段為新建／既有／暫時）預設跳過（skip）或失敗（fail）；呼叫端明確指定 existingPolicy='replace' 時，才會刪除目標房間內完全包含的天花板與其上所請求類別的燈具後再複製——刪除前逐一檢查連帶元素，跨界天花板、群組／設計選項、非本階段新建、或會連帶刪除未授權元素（如標籤、其他類別）一律拒絕該目標，並回報確切刪除清單；刪除與複製同一交易、可整批回滾。預設 dryRun（含回滾的試刪除＋試複製驗證）與 atomic。</div>
+      </div>
+    </div>
     <div class="tool-card" id="create_finish_legend" data-tool="create_finish_legend">
       <div>
         <div class="tool-name">create_finish_legend</div>
@@ -1285,6 +1295,16 @@
       </div>
       <div>
         <div class="tool-desc">取得指定樓層的所有房間清單，包含名稱、編號、面積、用途等。可用於容積檢討。</div>
+      </div>
+    </div>
+    <div class="tool-card" id="redraw_room_ceilings_with_lighting" data-tool="redraw_room_ceilings_with_lighting">
+      <div>
+        <div class="tool-name">redraw_room_ceilings_with_lighting</div>
+        <div class="tool-flags"><span class="tool-badge write">會寫入</span></div>
+        <div class="tool-module">room-ceiling-copy-tools</div>
+      </div>
+      <div>
+        <div class="tool-desc">依房號從來源房間「讀取」天花板與其上的燈具資料，在目標房間「重新繪製」全新的原生元素——不複製任何 Revit 元素（不使用 CopyElements／複製貼上）。天花板以 Ceiling.Create 依來源草圖輪廓（含孔洞、僅直線與圓弧）、原天花板類型、目標樓層與原「距樓層高度偏移」重建；燈具以 NewFamilyInstance 掛到新天花板的對應面（面式／工作平面式族群）或新天花板本體（天花板式族群），還原位置、旋轉、翻轉與安全可寫的實例參數（排除 Mark 與 IFC GUID）。平移量 = 房間完成面邊界中心 XY 差。斜天花板、形狀編輯、跨界天花板、不支援的曲線或放置型式、群組／設計選項／釘選／他人擁有、MEP 已連接、未請求的依附元素（開口、標籤、其他類別）、位於房外的主體燈具一律拒絕，不以近似結果代替。每個新元素在提交前逐一驗證類型、樓層、輪廓與孔洞、高度、包含關係、主體與主體面、位置與方向、階段與參數。不刪除任何元素：目標房間已有天花板或燈具時預設失敗（fail）或跳過（skip）。預設 dryRun（建立＋驗證後整批回滾、不回報試算 ID）與 atomic；正式執行須以主模型為作用中設計選項。</div>
       </div>
     </div>
     <div class="tool-card" id="remap_room_finish_codes" data-tool="remap_room_finish_codes">
@@ -2378,7 +2398,7 @@
     <a href="../index.html" class="bim-footer-btn">回 BIM_MCP 首頁</a>
   </div>
   <p>BIM_MCP · reference / tools-index</p>
-  <p style="font-size:11px;color:var(--text-faint);margin-top:6px;">222 個 MCP 工具完整索引，由 registerRevitTools() 產生；唯讀/寫入標註取自工具自身 annotations。</p>
+  <p style="font-size:11px;color:var(--text-faint);margin-top:6px;">224 個 MCP 工具完整索引，由 registerRevitTools() 產生；唯讀/寫入標註取自工具自身 annotations。</p>
 </footer>
 
 <script src="../shared.js"></script>

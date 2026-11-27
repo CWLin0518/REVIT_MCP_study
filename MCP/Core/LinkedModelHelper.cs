@@ -475,6 +475,50 @@ namespace RevitMCP.Core
                 };
             }
 
+            // Linear Dimension: Curve is unbound; derive the measured span from Origin ± Direction * Value / 2.
+            // Multi-segment dimensions: span from the first segment's start to the last segment's end.
+            if (element is Dimension dim && dim.Curve is Line dimLine)
+            {
+                XYZ dir = dimLine.Direction.Normalize();
+                XYZ start, end;
+                if (dim.NumberOfSegments > 1)
+                {
+                    DimensionSegment first = dim.Segments.get_Item(0);
+                    DimensionSegment last = dim.Segments.get_Item(dim.NumberOfSegments - 1);
+                    start = first.Origin - dir * ((first.Value ?? 0) / 2);
+                    end = last.Origin + dir * ((last.Value ?? 0) / 2);
+                }
+                else
+                {
+                    double half = (dim.Value ?? 0) / 2;
+                    start = dim.Origin - dir * half;
+                    end = dim.Origin + dir * half;
+                }
+                start = transform.OfPoint(start);
+                end = transform.OfPoint(end);
+                XYZ mid = (start + end) / 2;
+
+                return new
+                {
+                    HasCenterline = true,
+                    Source = "DimensionLine",
+                    StartX = Math.Round(start.X * 304.8, 2),
+                    StartY = Math.Round(start.Y * 304.8, 2),
+                    StartZ = Math.Round(start.Z * 304.8, 2),
+                    EndX = Math.Round(end.X * 304.8, 2),
+                    EndY = Math.Round(end.Y * 304.8, 2),
+                    EndZ = Math.Round(end.Z * 304.8, 2),
+                    MidX = Math.Round(mid.X * 304.8, 2),
+                    MidY = Math.Round(mid.Y * 304.8, 2),
+                    DirectionX = Math.Round(dir.X, 6),
+                    DirectionY = Math.Round(dir.Y, 6),
+                    DirectionZ = Math.Round(dir.Z, 6),
+                    Length = Math.Round(start.DistanceTo(end) * 304.8, 2),
+                    Segments = dim.NumberOfSegments,
+                    OwnerViewId = dim.OwnerViewId?.GetIdValue()
+                };
+            }
+
             return new { HasCenterline = false, Message = "此元素沒有中心線（非線性元素）" };
         }
 

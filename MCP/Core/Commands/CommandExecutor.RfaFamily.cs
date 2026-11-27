@@ -721,16 +721,23 @@ namespace RevitMCP.Core
             var warnings = new List<string>();
             Extrusion ext;
             RfaSketchFrame frame;
+            var circleReqs = new List<RfaCircleLabelRequest>();
+            object result;
 
             using (var t = new Transaction(doc, "MCP: rfa_create_extrusion"))
             {
+                // 警告（例如「光源在實體內」）靜默刪除並回報，錯誤靜默復原；不跳 Revit 對話框卡住 MCP
+                var failures = RfaUseRollbackOnError(t);
                 t.Start();
                 frame = RfaResolveSketchFrame(doc, parameters);
 
                 var loops = new CurveArrArray();
                 int idx = 0;
                 foreach (JObject loop in profiles.OfType<JObject>())
+                {
+                    RfaCollectCircleLabel(fm, loop, frame, $"profiles[{idx}]", circleReqs);
                     loops.Append(RfaBuildLoop(loop, frame, idx++));
+                }
 
                 try
                 {
@@ -753,20 +760,30 @@ namespace RevitMCP.Core
                         { "extrusionStart", BuiltInParameter.EXTRUSION_START_PARAM },
                     }, warnings);
 
-                t.Commit();
+                if (t.Commit() != TransactionStatus.Committed)
+                    throw new Exception($"建立擠出的交易被 Revit 復原{RfaFailureText(failures)}");
+                foreach (string w in failures.Warnings) warnings.Add($"Revit 警告：{w}");
 
-                return new
-                {
-                    id = ext.Id.GetIdValue(),
-                    isSolid,
-                    sketchPlane = frame.Description,
-                    startOffsetMm = RfaToMm(ext.StartOffset),
-                    endOffsetMm = RfaToMm(ext.EndOffset),
-                    profileCount = profiles.Count,
-                    associated = assocResults,
-                    warnings,
-                };
+                result = assocResults;
             }
+
+            // 輪廓圓直徑標籤（circle.diameterParameter），獨立交易，失敗只寫 warnings
+            var (diameterLabels, flexCheck) = RfaLabelProfileCircles(doc, new[] { ext.Sketch }, circleReqs,
+                parameters["viewName"]?.Value<string>(), warnings);
+
+            return new
+            {
+                id = ext.Id.GetIdValue(),
+                isSolid,
+                sketchPlane = frame.Description,
+                startOffsetMm = RfaToMm(ext.StartOffset),
+                endOffsetMm = RfaToMm(ext.EndOffset),
+                profileCount = profiles.Count,
+                associated = result,
+                diameterLabels,
+                flexCheck,
+                warnings,
+            };
         }
 
         #endregion

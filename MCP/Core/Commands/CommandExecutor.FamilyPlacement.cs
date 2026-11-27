@@ -361,6 +361,12 @@ namespace RevitMCP.Core
             if (hostObj == null)
                 throw new Exception($"hostId {hostIdValue}（品類 {host.Category?.Name}）不是 HostObject（天花板／樓板／牆／屋頂），無法作為主體。");
 
+            if (host is Wall wallHost)
+            {
+                return PlaceSingleWallHostedFamilyInstance(doc, symbol, index, tag, placement,
+                    wallHost, xMm, yMm, out createdElementId);
+            }
+
             string hostFace = placement["hostFace"]?.Value<string>();
             string faceKey = string.IsNullOrWhiteSpace(hostFace) ? "bottom" : hostFace.Trim().ToLowerInvariant();
             IList<Reference> faceRefs;
@@ -421,6 +427,135 @@ namespace RevitMCP.Core
 
             string levelName = level?.Name ?? (doc.GetElement(instance.LevelId) as Level)?.Name;
             return FinishPlacedInstance(doc, instance, index, tag, placement, hitPoint, rotationDeg, levelName);
+        }
+
+        /// <summary>
+        /// 牆主體放置（hostId 是 Wall）：(x, y) 給「牆面那一側、房間內」的平面點。
+        /// 沿牆位置 = (x, y) 投影到牆位置線（只支援直線牆）；放置側 = (x, y) 相對牆中心線落在哪一側
+        /// （以 Wall.Orientation 判斷）；落點放在該側牆面上（中心線 ± Width/2）。
+        /// 高度：落點 Z 取主體牆所屬樓層的 ProjectElevation；若族群有 INSTANCE_ELEVATION_PARAM
+        /// 且呼叫端給了 elevationFromLevel（mm），放置後寫入。z 與 hostFace 在此分支不使用。
+        /// 放置後以實例 BoundingBox 中心判斷幾何實際落在牆的哪一側；落在相反側且 CanFlipFacing
+        /// 時自動 flipFacing 一次；不可翻轉時改以牆中心線鏡射副本並刪除原件。結果在回傳的 WallPlacement 揭露
+        /// （RequestedSide / BBoxCenterOffset… / Flipped / MirroredAcrossWall / GeometryOnRequestedSide）。
+        /// 需求來源：2026-11-19 無障礙廁所的扶手、沐浴椅、求助鈴都是牆主體通用模型，原工具只能放天花板／樓板。
+        /// </summary>
+        private object PlaceSingleWallHostedFamilyInstance(
+            Document doc,
+            FamilySymbol symbol,
+            int index,
+            string tag,
+            JObject placement,
+            Wall wall,
+            double xMm,
+            double yMm,
+            out IdType? createdElementId)
+        {
+            createdElementId = null;
+
+            if (symbol.Family.FamilyPlacementType != FamilyPlacementType.OneLevelBasedHosted)
+                throw new Exception($"族群 {symbol.FamilyName} 的放置型式為 {symbol.Family.FamilyPlacementType}，牆主體放置只支援 OneLevelBasedHosted（牆式樣板）族群。");
+
+            LocationCurve lc = wall.Location as LocationCurve;
+            Line wallLine = lc?.Curve as Line;
+            if (wallLine == null)
+                throw new Exception($"牆 {wall.Id.GetIdValue()} 不是直線牆，牆主體放置目前只支援直線牆。");
+
+            Level level = doc.GetElement(wall.LevelId) as Level;
+            if (level == null)
+                throw new Exception($"牆 {wall.Id.GetIdValue()} 沒有所屬樓層。");
+
+            double zLine = wallLine.GetEndPoint(0).Z;
+            XYZ requested = new XYZ(xMm / 304.8, yMm / 304.8, zLine);
+            XYZ proj = wallLine.Project(requested).XYZPoint;
+            XYZ normal = new XYZ(wall.Orientation.X, wall.Orientation.Y, 0).Normalize();
+            double signedDist = (requested - proj).DotProduct(normal);
+            if (Math.Abs(signedDist) * 304.8 < 1.0)
+                throw new Exception("(x, y) 落在牆中心線上，無法判斷放在哪一側；請給牆面那一側、房間內的點。");
+            double side = signedDist > 0 ? 1.0 : -1.0;
+            XYZ sideVec = normal * side;
+
+            XYZ facePt = new XYZ(proj.X, proj.Y, level.ProjectElevation) + sideVec * (wall.Width / 2.0);
+
+            // 2026-11-19 Revit 2027 實測：牆主體 OneLevelBasedHosted 實例的幾何一律落在牆 Orientation
+            // （外側）那面，與落點在哪一側無關；族群沒有翻轉控制時 CanFlipFacing = false，無法事後翻面。
+            // 改用帶 referenceDirection 的 overload 也不會換面，且會丟失樓層（Z 落到 0），已退回本 overload。
+            // 要放在牆的內側：先翻牆（Wall.Flip，flip_element）或在族群加翻轉控制。下方 GeometryOnRequestedSide
+            // 會誠實回報是否落在要求的那側。
+            FamilyInstance instance = doc.Create.NewFamilyInstance(facePt, symbol, wall, level, StructuralType.NonStructural);
+            createdElementId = instance.Id.GetIdValue();
+
+            JToken elevToken = placement["elevationFromLevel"];
+            string elevationNote = null;
+            if (elevToken != null && elevToken.Type != JTokenType.Null)
+            {
+                Parameter ep = instance.get_Parameter(BuiltInParameter.INSTANCE_ELEVATION_PARAM);
+                if (ep != null && !ep.IsReadOnly)
+                    ep.Set(elevToken.Value<double>() / 304.8);
+                else
+                    elevationNote = "族群沒有可寫的 Elevation from Level 參數，elevationFromLevel 未套用。";
+            }
+
+            doc.Regenerate();
+
+            Func<double?> geometrySide = () =>
+            {
+                BoundingBoxXYZ bb = instance.get_BoundingBox(null);
+                if (bb == null) return null;
+                XYZ c = (bb.Min + bb.Max) * 0.5;
+                return new XYZ(c.X - proj.X, c.Y - proj.Y, 0).DotProduct(sideVec) * 304.8;
+            };
+
+            double? before = geometrySide();
+            bool flipped = false;
+            bool mirrored = false;
+            IdType? discardedOriginalId = null;
+            if (before.HasValue && before.Value < 0 && instance.CanFlipFacing)
+            {
+                instance.flipFacing();
+                doc.Regenerate();
+                flipped = true;
+            }
+            else if (before.HasValue && before.Value < 0)
+            {
+                // 族群沒有翻轉控制（CanFlipFacing = false）：以牆中心線所在的鉛直面鏡射出副本（同 UI 的 Mirror），
+                // 副本會掛在牆的另一面；保留副本、刪除原件。實例的 Mirrored 會是 true——對沿牆方向對稱的
+                // 扶手／求助鈴／座椅沒有影響，非對稱族群請呼叫端自行核對。
+                Plane mirrorPlane = Plane.CreateByNormalAndOrigin(normal, proj);
+                IList<ElementId> copies = ElementTransformUtils.MirrorElements(
+                    doc, new List<ElementId> { instance.Id }, mirrorPlane, true);
+                FamilyInstance copy = copies
+                    .Select(id => doc.GetElement(id) as FamilyInstance)
+                    .FirstOrDefault(fi => fi != null);
+                if (copy == null)
+                    throw new Exception("幾何落在牆的另一側，且鏡射副本建立失敗；原實例保留，請手動處理。");
+                discardedOriginalId = instance.Id.GetIdValue();
+                doc.Delete(instance.Id);
+                instance = copy;
+                createdElementId = instance.Id.GetIdValue();
+                doc.Regenerate();
+                mirrored = true;
+            }
+            double? after = geometrySide();
+
+            object baseResult = FinishPlacedInstance(doc, instance, index, tag, placement, facePt, 0, level.Name);
+            JObject merged = JObject.FromObject(baseResult);
+            merged["WallPlacement"] = JObject.FromObject(new
+            {
+                WallId = wall.Id.GetIdValue(),
+                WallWidthMm = Math.Round(wall.Width * 304.8, 2),
+                RequestedSide = side > 0 ? "exterior (Wall.Orientation)" : "interior (-Wall.Orientation)",
+                FacePoint = new { X = Math.Round(facePt.X * 304.8, 2), Y = Math.Round(facePt.Y * 304.8, 2) },
+                BBoxCenterOffsetFromWallCenterlineMm_BeforeFlip = before.HasValue ? (object)Math.Round(before.Value, 2) : null,
+                BBoxCenterOffsetFromWallCenterlineMm = after.HasValue ? (object)Math.Round(after.Value, 2) : null,
+                Flipped = flipped,
+                MirroredAcrossWall = mirrored,
+                DiscardedOriginalId = discardedOriginalId,
+                CanFlipFacing = instance.CanFlipFacing,
+                GeometryOnRequestedSide = after.HasValue ? (object)(after.Value > 0) : null,
+                ElevationNote = elevationNote
+            });
+            return merged;
         }
 
         /// <summary>

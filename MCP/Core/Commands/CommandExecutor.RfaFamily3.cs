@@ -209,23 +209,8 @@ namespace RevitMCP.Core
                 RfaConstrainCurve(doc, fm, mc, parameters["constraints"] as JArray, "參考線", results, warnings);
 
                 // ── 圓弧半徑標籤 ──
-                string radParam = parameters["radiusParameter"]?.Value<string>();
-                if (!string.IsNullOrEmpty(radParam))
-                {
-                    if (!isArc) throw new Exception("radiusParameter 只適用於圓弧");
-                    var arc = (Arc)g;
-                    FamilyParameter fp = RfaFindParam(fm, radParam) ?? throw new Exception($"找不到族群參數「{radParam}」");
-                    double want = fm.CurrentType?.AsDouble(fp) ?? -1;
-                    if (Math.Abs(want - arc.Radius) > tol)
-                        throw new Exception($"圓弧半徑是 {RfaToMm(arc.Radius)} mm，但參數「{radParam}」是 {RfaToMm(want)} mm");
-                    View view = RfaPickConstraintView(doc, null, null, arc.Normal, parameters["viewName"]?.Value<string>());
-                    string note = RfaEnsurePlanShows(doc, view, zMax);
-                    if (note != null && !warnings.Contains(note)) warnings.Add(note);
-                    XYZ midDir = (arc.Evaluate(0.5, true) - arc.Center).Normalize();
-                    Dimension rd = doc.FamilyCreate.NewRadialDimension(view, arc.Reference, arc.Center + midDir * arc.Radius * 0.6);
-                    rd.FamilyLabel = fp;
-                    results.Add(new { target = "radius", kind = "radius", label = radParam, id = rd.Id.GetIdValue(), view = view.Name });
-                }
+                RfaLabelArcRadius(doc, fm, mc, parameters["radiusParameter"]?.Value<string>(),
+                    parameters["viewName"]?.Value<string>(), results, warnings);
 
                 if (t.Commit() != TransactionStatus.Committed)
                     throw new Exception($"Revit 拒絕了參考線或其約束（交易被復原，可能是過度約束）{RfaFailureText(failures)}");

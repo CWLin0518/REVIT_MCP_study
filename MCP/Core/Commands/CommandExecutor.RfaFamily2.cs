@@ -581,19 +581,27 @@ namespace RevitMCP.Core
             if (Math.Abs(heightMm) < 0.5) throw new Exception("heightMm 太小");
             bool isSolid = parameters["isSolid"]?.Value<bool>() ?? true;
             var warnings = new List<string>();
+            var circleReqs = new List<RfaCircleLabelRequest>();
+            Blend blend;
+            object assoc;
+            string sketchDesc;
 
             using (var t = new Transaction(doc, "MCP: rfa_create_blend"))
             {
+                // 警告（例如「光源在實體內」）靜默刪除並回報，錯誤靜默復原；不跳 Revit 對話框卡住 MCP
+                var failures = RfaUseRollbackOnError(t);
                 t.Start();
                 RfaSketchFrame frame = RfaResolveSketchFrame(doc, parameters);
+                sketchDesc = frame.Description;
+                RfaCollectCircleLabel(fm, baseLoop, frame, "baseProfile", circleReqs);
                 CurveArray baseCurves = RfaBuildLoop(baseLoop, frame, 0);
 
                 // 頂部輪廓：同一套 2D 座標，沿法向量平移 heightMm
                 var topFrame = frame;
                 topFrame.Origin = frame.Origin + frame.Normal * RfaMm(heightMm);
+                RfaCollectCircleLabel(fm, topLoop, topFrame, "topProfile", circleReqs);
                 CurveArray topCurves = RfaBuildLoop(topLoop, topFrame, 1);
 
-                Blend blend;
                 try
                 {
                     // NewBlend 哪個輪廓參數會成為 TopProfile，文件與實測不一致（Revit 2027：第一個參數成為頂部）。
@@ -622,24 +630,33 @@ namespace RevitMCP.Core
                     { "blendTop", BuiltInParameter.BLEND_END_PARAM },
                     { "blendBase", BuiltInParameter.BLEND_START_PARAM },
                 };
-                var assoc = RfaApplyMaterialAndAssociations(doc, fm, blend, isSolid,
+                assoc = RfaApplyMaterialAndAssociations(doc, fm, blend, isSolid,
                     parameters["material"]?.Value<string>(), parameters["associate"] as JObject, extra, warnings);
-                t.Commit();
-
-                return new
-                {
-                    id = blend.Id.GetIdValue(),
-                    isSolid,
-                    sketchPlane = frame.Description,
-                    bottomOffsetMm = RfaToMm(blend.BottomOffset),
-                    topOffsetMm = RfaToMm(blend.TopOffset),
-                    // 自我檢查：Revit 實際認定的頂/底輪廓由哪些曲線組成（例如圓 = 2 Arc，矩形 = 4 Line）
-                    bottomProfileCurves = RfaDescribeProfile(blend.BottomProfile),
-                    topProfileCurves = RfaDescribeProfile(blend.TopProfile),
-                    associated = assoc,
-                    warnings,
-                };
+                if (t.Commit() != TransactionStatus.Committed)
+                    throw new Exception($"建立融合的交易被 Revit 復原{RfaFailureText(failures)}");
+                foreach (string w in failures.Warnings) warnings.Add($"Revit 警告：{w}");
             }
+
+            // 輪廓圓直徑標籤（circle.diameterParameter），獨立交易，失敗只寫 warnings
+            var (diameterLabels, flexCheck) = RfaLabelProfileCircles(doc,
+                new[] { RfaSafe(() => blend.BottomSketch), RfaSafe(() => blend.TopSketch) }, circleReqs,
+                parameters["viewName"]?.Value<string>(), warnings);
+
+            return new
+            {
+                id = blend.Id.GetIdValue(),
+                isSolid,
+                sketchPlane = sketchDesc,
+                bottomOffsetMm = RfaToMm(blend.BottomOffset),
+                topOffsetMm = RfaToMm(blend.TopOffset),
+                // 自我檢查：Revit 實際認定的頂/底輪廓由哪些曲線組成（例如圓 = 2 Arc，矩形 = 4 Line）
+                bottomProfileCurves = RfaDescribeProfile(blend.BottomProfile),
+                topProfileCurves = RfaDescribeProfile(blend.TopProfile),
+                associated = assoc,
+                diameterLabels,
+                flexCheck,
+                warnings,
+            };
         }
 
         #endregion

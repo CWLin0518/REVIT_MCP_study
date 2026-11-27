@@ -128,8 +128,9 @@ export const mepTools: Tool[] = [
                             levelName: { type: "string", description: "放置的樓層名稱。會先精確比對（區分大小寫的完全相同），沒有精確命中才退回既有的模糊比對（可能把 '1F' 誤配到 'B1F'，因為模糊比對是雙向 Contains）。省略時自動取「ProjectElevation 最接近 z 且不高於 z」的樓層（z 為世界座標）；仍找不到則該筆失敗並回報原因。結果的 LevelName 是實際採用的樓層，請核對是否等於你給的值。此自動選層分支至今未經 Revit 實測（僅靜態驗證），需要確定樓層歸屬時仍建議明確指定 levelName。" },
                             rotation: { type: "number", description: "繞通過放置點的鉛直軸旋轉，單位度，預設 0。旋轉軸使用實例實際落點（而非你給的 x/y/z），因為 Revit 放置時可能對點做吸附/調整。" },
                             tag: { type: "string", description: "呼叫端自訂識別字串（例如 Space 編號），原樣回傳，方便把結果對回你自己的清單。" },
-                            hostId: { type: "number", description: "選填。主體元素 ElementId（天花板／樓板／牆／屋頂等 HostObject）。給了就改走主體放置：從 (x, y) 作鉛直線與主體的 hostFace 面求交，交點即落點，z 與 levelName 被忽略（樓層取主體所屬樓層）。族群須為 WorkPlaneBased（面式）或 OneLevelBasedHosted（如天花板式燈具），其他放置型式直接報錯、不退回無主體放置。點落在主體面外（開口或邊界外）時該筆失敗。回傳的 HostId 是實際主體，請核對。用途：燈具掛天花板底面——無主體放置的燈具即使設了 Elevation from Level 也不會隨天花板移動，且可能浮在天花板上方被遮住。" },
-                            hostFace: { type: "string", description: "選填，搭配 hostId：'bottom'（預設，天花板底面）或 'top'（樓板頂面）。" },
+                            hostId: { type: "number", description: "選填。主體元素 ElementId（天花板／樓板／牆／屋頂等 HostObject）。給了就改走主體放置：從 (x, y) 作鉛直線與主體的 hostFace 面求交，交點即落點，z 與 levelName 被忽略（樓層取主體所屬樓層）。族群須為 WorkPlaneBased（面式）或 OneLevelBasedHosted（如天花板式燈具），其他放置型式直接報錯、不退回無主體放置。點落在主體面外（開口或邊界外）時該筆失敗。回傳的 HostId 是實際主體，請核對。用途：燈具掛天花板底面——無主體放置的燈具即使設了 Elevation from Level 也不會隨天花板移動，且可能浮在天花板上方被遮住。主體是牆（Wall，僅直線牆）時改走牆主體放置：(x, y) 給牆面那一側、房間內的點，沿牆位置取 (x, y) 在牆位置線上的投影、放置側取 (x, y) 所在側，落點在該側牆面；族群須為 OneLevelBasedHosted（牆式樣板）。放置後以 BBox 判斷幾何實際在哪一側，反側且可翻轉時自動 flipFacing，結果見回傳的 WallPlacement。" },
+                            hostFace: { type: "string", description: "選填，搭配 hostId：'bottom'（預設，天花板底面）或 'top'（樓板頂面）。主體是牆時不使用。" },
+                            elevationFromLevel: { type: "number", description: "選填，只用於牆主體放置：放置後寫入實例的 Elevation from Level（mm）；族群沒有此參數時回傳 ElevationNote。" },
                             parameters: {
                                 type: "object",
                                 description: "放置後要設定的實例參數，格式 {\"參數名\": 值}。每個參數設定後都會讀回 WrittenBackDisplay（顯示值）與 WrittenBackRaw（內部單位原始值）兩個獨立欄位，兩者互不補值、各自可能為 null，務必併看才能確認寫入的是你要的量——本工具不做任何單位換算或猜測。",

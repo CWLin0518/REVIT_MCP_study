@@ -99,6 +99,10 @@ namespace RevitMCP.Core
 
                 RfaConstrainCurve(doc, fm, sc, parameters["constraints"] as JArray, "符號線", results, warnings);
 
+                // 圓弧半徑標籤（例如平面圖例的圓跟著直徑參數；半徑參數可用公式 = 直徑 / 2）
+                RfaLabelArcRadius(doc, fm, sc, parameters["radiusParameter"]?.Value<string>(),
+                    parameters["viewName"]?.Value<string>(), results, warnings);
+
                 if (t.Commit() != TransactionStatus.Committed)
                     throw new Exception($"Revit 拒絕了符號線或其約束（交易被復原，可能是過度約束）{RfaFailureText(failures)}");
             }

@@ -36,6 +36,13 @@ const profileLoopSchema = {
             properties: {
                 center: { type: "array", items: { type: "number" }, description: "[u, v] in mm." },
                 radius: { type: "number", description: "Radius in mm." },
+                diameterParameter: {
+                    type: "string",
+                    description:
+                        "Optional (rfa_create_extrusion / rfa_create_blend only): length family parameter whose current value equals 2 × radius. " +
+                        "After the form is built, a diameter dimension on the sketch arcs is labelled with it so the circle follows the parameter, then a +10 mm flex self-check runs (rolled back). " +
+                        "Use a formula parameter (e.g. \"Outer Diameter - 4 mm\") for an inner/void circle that must track another diameter. On failure the form is kept with a fixed diameter and a warning.",
+                },
             },
         },
     },
@@ -87,7 +94,8 @@ export const rfaFamilyTools: Tool[] = [
         description:
             "Create an extrusion in the active family document. Builds a solid or void from one or more closed 2D profiles (extra loops inside the first become holes). " +
             "Sketch on plane XY/XZ/YZ (+ planeOffsetMm) or on a named reference plane; the extrusion runs along the sketch plane normal (XY → +Z, XZ → -Y, YZ → +X). " +
-            "Optionally assign a material and bind extrusionEnd/extrusionStart/material/visible to existing family parameters.",
+            "Optionally assign a material and bind extrusionEnd/extrusionStart/material/visible to existing family parameters. " +
+            "A circle profile may carry diameterParameter to make its diameter parametric; the result then adds diameterLabels and flexCheck.",
         inputSchema: {
             type: "object",
             properties: {
@@ -313,7 +321,8 @@ export const rfaFamilyTools: Tool[] = [
         name: "rfa_create_blend",
         description:
             "Create a blend in the active family document. Lofts from a base loop to a top loop (one closed loop each, any shapes) over heightMm along the sketch plane normal. " +
-            "Sketch on plane XY/XZ/YZ (+ planeOffsetMm) or a named reference plane; both loops use the same [u, v] mm coordinates.",
+            "Sketch on plane XY/XZ/YZ (+ planeOffsetMm) or a named reference plane; both loops use the same [u, v] mm coordinates. " +
+            "A circle base/top profile may carry diameterParameter (e.g. a cone lampshade whose rim follows a Diameter parameter); the result then adds diameterLabels and flexCheck.",
         inputSchema: {
             type: "object",
             properties: {
@@ -393,11 +402,13 @@ export const rfaFamilyTools: Tool[] = [
             "As with reference lines, an unconstrained end is held by Revit's automatic sketch dimensions to nearby planes and may move with them; constrain both ends when it matters. " +
             "Batch form: pass `polylines` instead of line/arc to draw many outlines (e.g. a furniture plan) in ONE call and ONE transaction — each consecutive point pair becomes one straight symbolic line on hostPlane; " +
             "segments shorter than max(0.5 mm, Revit's short-curve tolerance) are skipped and counted; at most 2000 segments per call; if any segment fails the whole batch is rolled back and the error names the polyline/segment index. " +
-            "Batch form takes no constraints and returns totalCreated, skipped, ids per polyline and the bounding box (mm) of everything drawn.",
+            "Batch form takes no constraints and returns totalCreated, skipped, ids per polyline and the bounding box (mm) of everything drawn. " +
+            "Single arcs can carry radiusParameter (current value must equal the arc radius) so a plan circle follows a parameter; combine with a center constraint to keep it in place.",
         inputSchema: {
             type: "object",
             properties: {
                 hostPlane: { type: "string", description: "Reference plane the line lies in (its work plane), e.g. \"Interior\" for a door elevation swing." },
+                radiusParameter: { type: "string", description: "Arc only (not batch): length parameter labelling the radius. Its current value must equal the arc radius." },
                 polylines: {
                     type: "array",
                     description: "Batch form. Mutually exclusive with line, arc and constraints. Every point must lie on hostPlane (0.5 mm tolerance). subcategory applies to all lines.",

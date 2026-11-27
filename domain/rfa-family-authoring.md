@@ -145,12 +145,29 @@ metadata:
 
 > 例：板厚由參數「厚度」控制 → `associate: {"extrusionEnd": "厚度"}`。
 
+**空心擠出不會自動剪實心（2026-11-24 Revit 2027 實測）**：先建實心盒、再建與它相交的空心擠出，實心體積不變（長條燈盒讀回仍是完整盒體積）；目前沒有「剪下幾何」工具。中空／開口形體改用**帶內迴圈的擠出**（第一個迴圈外框、第二個迴圈成為開孔，例如 U 型燈盒＝帶孔的四周壁＋一片頂板），兩個形體的內外面各自鎖到參考平面；建好後用 `get_element_geometry`（solid）核對體積。
+
 ### 5.2 融合（Blend）
 
 `baseProfile` → `topProfile`，相距 `heightMm`。`associate` 可綁 `blendTop`、`blendBase`、`material`、`visible`。
 
 - Revit 2027 的 `NewBlend` 實際上把**第一個**輪廓引數當成頂部，與 API 文件寫法相反。工具會比對回傳的頂部／底部迴圈組成（曲線種類＋總長），順序反了就刪掉重建，並在 warnings 註明。
 - 回傳的 TopProfile / BottomProfile 曲線組成就是自檢結果：方底圓頂應看到 bottom「4 Line」、top「2 Arc」。
+
+### 5.2.1 圓形輪廓的直徑參數（circle.diameterParameter）
+
+> 2026-11-20 新增，Revit 2027 實測（圓錐吊燈：融合實體＋空心融合）。
+
+擠出與融合的 `circle` 輪廓可加 `diameterParameter`：形體建好後，工具在草圖圓弧上建直徑尺寸並綁參數，再以 +10 mm 做一次一定復原的撓曲自檢（半徑跟著參數、圓心不偏移）。
+
+- 參數現值必須等於 2 × radius，否則整個呼叫拒絕。
+- 公式參數也可綁（例如空心內徑 `燈罩直徑 - 4.8 mm`），自檢會標示 skipped，請改動驅動它的參數做撓曲測試。
+- 實測：燈罩直徑 400 → 600，實體與空心的 bbox 皆跟著放大且維持在 X=0 置中，高度不變。
+- 標籤失敗時形體保留、直徑固定，原因寫在 warnings。
+
+**以參考平面為草圖平面時的座標陷阱（實測）**：用 `normal` 簡式建立的水平參考平面，原點在 X=+1000、平面自身 u 軸朝 **−X**。要畫在族群原點，`center` 要給 `[1000, 0]`，建好後一律以 `rfa_get_document_info` 的 `boundingBoxMm` 核對。此類平面法向量為 −Z，但融合仍往 **+Z** 長（底在平面上、頂在上方），擠出則沿法向量往 −Z。
+
+**光源被包住**：照明族群的光源若落在實體內，Revit 會跳「Light source is inside solid geometry」警告。先建實心燈罩、後建空心時會短暫出現；建立工具已改為靜默刪除警告並寫入 warnings，不再跳對話框卡住 MCP。光源位置用標籤尺寸把 `Light Source Elevation` 綁到燈罩平面（例：`光源距燈罩底 = 燈罩高度 - 30 mm`）。
 
 ### 5.3 掃掠（Sweep，固定路徑）
 
@@ -200,6 +217,9 @@ metadata:
 - `hostPlane`：符號線的工作平面。門的立面開門方向線通常畫在 `Interior` 或 `Exterior` 平面上。
 - `subcategory`：族群類別底下的子類別名稱，決定線型（例如門的 `Elevation Swing`）。名稱不存在時，錯誤訊息會列出可用的子類別。
 - `constraints`：與 `rfa_create_reference_line` 相同（`curve` / `start` / `end` / `center`，對齊鎖定或以參數標距）。
+
+- `radiusParameter`（單一圓弧，2026-11-20 新增並實測）：圓弧半徑綁參數，搭配 `center` 對齊兩條中心軸，平面圖例的圓就會跟著尺寸走。
+- **斜線端點不能「對齊鎖定」到參考平面**（實測錯誤：The two references are not geometrically aligned）。平面圖例的 X 線請改用 `distanceParameter`：每個端點對兩條中心軸各標一道距離（例：`符號X半距 = 燈罩直徑 * 0.353553`），實測直徑變更後端點跟著移動。
 
 **修改既有族群時**：既有符號線的端點約束無法經由 API 改掛到別的參考平面。要讓它跟著新的平面走，作法是先用 `get_element_geometry` 記下原線的端點與 `get_element_info` 的 Subcategory，用 `rfa_create_symbolic_line` 在新位置重畫並約束，確認無誤後再用 `rfa_delete_elements` 刪除舊線。
 
@@ -377,6 +397,8 @@ metadata:
 - 視圖自動挑選：垂直平面用平面圖，水平平面用立面；也可用 `viewName` 指定。
 
 常見骨架：Left / 中心 / Right 三平面設 EQ，Left / Right 再標一道「寬度」。這樣改寬度時形體會對稱縮放。
+
+**對稱等分不要兩端都標端距（2026-11-24 實測）**：吊桿 1…5 含中心平面設 EQ，且燈盒兩端已對中心 EQ 時，只能在**一端**標「吊桿端距」；兩端都標，建立當下不報錯，但之後任何參數變更都會被拒絕（Reference Planes are overconstrained），掃掠的直徑撓曲自檢也會因此 FAILED。另一端由對稱自動決定。
 
 ### 6.2 `rfa_align_to_reference_plane`
 

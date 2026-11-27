@@ -35,7 +35,7 @@ These counts must be derived from source, not copied by memory.
 
 | Item | Current Count | Source of Truth |
 |---|---:|---|
-| Runtime MCP tools | 222 | `registerRevitTools()` from `MCP-Server/src/tools/index.ts` |
+| Runtime MCP tools | 224 | `registerRevitTools()` from `MCP-Server/src/tools/index.ts` |
 | Domain SOP files | 84 | `domain/*.md` except `domain/README.md`, plus `domain/references/*.md` |
 | Claude skills | 63 | `.claude/skills/*/SKILL.md` |
 
@@ -453,7 +453,7 @@ QA/QC must cover:
 - registered-tool ↔ dispatcher reconciliation (Phase 7 check `7-15`): every tool `registerRevitTools()` declares must resolve to a `case "..."` label somewhere in `MCP/Core/CommandExecutor.cs` or a globbed `MCP/Core/Commands/*.cs` (never a hand-typed file list), after the rename map in `MCP-Server/src/tools/revit-tools.ts` is applied and comments are stripped from the C# source. Forward direction only — case labels also serve internal non-tool switches (filter operators, etc.), so a reverse check would be pure noise. An orphan (declared but unimplemented) is a FAIL; `$knownUnimplemented` is a named, reasoned quarantine list that still WARNs on every run rather than silently filtering the tool out, and FAILs if a quarantined name gains a dispatcher case without being removed from the list (drift self-check). This exists because "TS registers a tool, C# has no case for it" reaches callers as `NotImplementedException` while staying invisible to QA/QC — it has recurred more than once
 - snapshot banner (`data-snapshot="YYYY-MM-DD"`) on date-prefixed `docs/MMDD-*.html`
 - MCP Registry publish consistency (`server.json` ↔ `MCP-Server/package.json` ↔ schema; 3-place version parity) — Phase 7 check `7-11`, see below
-- MCP 2026 compliance (Phase 9): 9-1 every tool declares a non-empty `title` and boolean `readOnlyHint`, with `destructiveHint=true` confined to the allow-list (`delete_element`, `dedup_detail_elements_in_view`, `curate_mep_sizes`, `rfa_delete_parameter`, `rfa_delete_elements`); 9-2 every MCP Apps `ui://` resource resolves with the correct MIME (`text/html;profile=mcp-app`) and is self-contained (no external `src`/`href`/`url()` references)
+- MCP 2026 compliance (Phase 9): 9-1 every tool declares a non-empty `title` and boolean `readOnlyHint`, with `destructiveHint=true` confined to the allow-list (`delete_element`, `dedup_detail_elements_in_view`, `curate_mep_sizes`, `rfa_delete_parameter`, `rfa_delete_elements`, `copy_room_ceilings_with_lighting`); 9-2 every MCP Apps `ui://` resource resolves with the correct MIME (`text/html;profile=mcp-app`) and is self-contained (no external `src`/`href`/`url()` references)
 - deployment integrity (Phase 5, only when `-SkipDeploy` is omitted): 5-3 the deployed DLL set must cover the corresponding `MCP/bin/<config>/*.dll` build output — missing any file is a FAIL that names it; 5-4 the deployed `RevitMCP.dll` SHA256 must match that build output (WARN on mismatch — usually just not rebuilt); 5-5 cross-version consistency, WARN listing versions left behind; 5-6 WARN on a root-level `Addins\<year>\RevitMCP.dll` (pre-#91 layout residue — the manifest loads the subfolder copy)
 
 Phase 5 design constraints — do not regress these:
