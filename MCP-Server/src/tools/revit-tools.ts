@@ -35,9 +35,11 @@ export async function executeRevitTool(
     const CROSS_DOC_COMMANDS = new Set(["read_source_file_sheets", "copy_sheets_from_file", "sync_sheet_parameters_from_source", "inject_green_material_into_family", "rfa_new_family", "rfa_open_family", "rfa_load_into_project", "rfa_place_nested_family"]);
     // 大批次單一交易：逾時後 Revit 仍在執行且結果會遺失，需給足時間
     const LONG_TRANSACTION_COMMANDS = new Set(["set_wall_location_lines"]);
+    // 影像匯出：大視圖或高解析度時 ExportImage 可能超過 30 秒
+    const IMAGE_EXPORT_COMMANDS = new Set(["export_view_image"]);
     const timeoutMs = LONG_TRANSACTION_COMMANDS.has(commandName)
         ? 600000
-        : CROSS_DOC_COMMANDS.has(commandName) ? 120000 : 30000;
+        : CROSS_DOC_COMMANDS.has(commandName) || IMAGE_EXPORT_COMMANDS.has(commandName) ? 120000 : 30000;
 
     // 發送命令到 Revit
     const response = await client.sendCommand(commandName, args, timeoutMs);

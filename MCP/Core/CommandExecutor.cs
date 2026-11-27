@@ -588,6 +588,9 @@ namespace RevitMCP.Core
                     case "shift_view_cropbox":
                         result = ShiftViewCropBox(parameters);
                         break;
+                    case "export_view_image":
+                        result = ExportViewImage(parameters);
+                        break;
                     case "move_text_notes_in_views":
                         result = MoveTextNotesInViews(parameters);
                         break;

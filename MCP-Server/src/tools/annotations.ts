@@ -102,6 +102,8 @@ export const OVERRIDE: Record<string, ClassificationHints> = {
     export_families: { readOnlyHint: true, destructiveHint: false },
     export_clash_report: { readOnlyHint: true, destructiveHint: false },
     export_smoke_review_excel: { readOnlyHint: true, destructiveHint: false },
+    // 暫時視圖與裁剪都在 TransactionGroup 內並一律 RollBack；只寫出外部 PNG。
+    export_view_image: { readOnlyHint: true, destructiveHint: false },
     import_excel_to_drafting_views: { readOnlyHint: true, destructiveHint: false },
 
     select_element: { readOnlyHint: false, destructiveHint: false },
